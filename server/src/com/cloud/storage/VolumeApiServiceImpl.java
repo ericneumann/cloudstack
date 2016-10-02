@@ -30,8 +30,10 @@ import javax.inject.Inject;
 
 import com.cloud.utils.EncryptionUtil;
 import com.cloud.utils.db.TransactionCallbackWithException;
+import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
 
 import org.apache.cloudstack.api.command.user.volume.GetUploadParamsForVolumeCmd;
 import org.apache.cloudstack.api.response.GetUploadParamsResponse;
@@ -39,6 +41,7 @@ import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
 import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
 import org.apache.cloudstack.storage.command.TemplateOrVolumePostUploadCommand;
 import org.apache.cloudstack.utils.imagestore.ImageStoreUtil;
+import org.apache.cloudstack.utils.volume.VirtualMachineDiskInfo;
 import org.apache.log4j.Logger;
 import org.apache.cloudstack.api.command.user.volume.AttachVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.CreateVolumeCmd;
@@ -112,12 +115,14 @@ import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.HypervisorCapabilitiesVO;
 import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
 import com.cloud.org.Grouping;
+import com.cloud.serializer.GsonHelper;
 import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.SnapshotDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VolumeDao;
+import com.cloud.storage.dao.VolumeDetailsDao;
 import com.cloud.storage.snapshot.SnapshotApiService;
 import com.cloud.storage.snapshot.SnapshotManager;
 import com.cloud.template.TemplateManager;
@@ -146,10 +151,12 @@ import com.cloud.utils.db.UUIDManager;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.fsm.NoTransitionException;
 import com.cloud.utils.fsm.StateMachine2;
+import com.cloud.vm.UserVmManager;
 import com.cloud.vm.UserVmVO;
 import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.State;
+import com.cloud.vm.VmDetailConstants;
 import com.cloud.vm.VmWork;
 import com.cloud.vm.VmWorkAttachVolume;
 import com.cloud.vm.VmWorkConstants;
@@ -189,6 +196,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     ConfigurationManager _configMgr;
     @Inject
     VolumeDao _volsDao;
+    @Inject
+    VolumeDetailsDao _volDetailDao;
     @Inject
     HostDao _hostDao;
     @Inject
@@ -239,6 +248,11 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     VmWorkJobDao _workJobDao;
     @Inject
     ClusterDetailsDao _clusterDetailsDao;
+    @Inject
+    UserVmManager _userVmMgr;
+    protected Gson _gson;
+    @Inject
+    StorageManager storageMgr;
 
     private List<StoragePoolAllocator> _storagePoolAllocators;
 
@@ -252,6 +266,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
 
     protected VolumeApiServiceImpl() {
         _volStateMachine = Volume.State.getStateMachine();
+        _gson = GsonHelper.getGsonLogger();
     }
 
     /*
@@ -475,6 +490,25 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         });
     }
 
+    /**
+     * Retrieves the volume name from CreateVolumeCmd object.
+     *
+     * If the retrieved volume name is null, empty or blank, then A random name
+     * will be generated using getRandomVolumeName method.
+     *
+     * @param cmd
+     * @return Either the retrieved name or a random name.
+     */
+    public String getVolumeNameFromCommand(CreateVolumeCmd cmd) {
+        String userSpecifiedName = cmd.getVolumeName();
+
+        if (org.apache.commons.lang.StringUtils.isBlank(userSpecifiedName)) {
+            userSpecifiedName = getRandomVolumeName();
+        }
+
+        return userSpecifiedName;
+    }
+
     /*
      * Just allocate a volume in the database, don't send the createvolume cmd
      * to hypervisor. The volume will be finally created only when it's attached
@@ -670,10 +704,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
             throw new InvalidParameterValueException("Zone is not configured to use local storage but volume's disk offering " + diskOffering.getName() + " uses it");
         }
 
-        String userSpecifiedName = cmd.getVolumeName();
-        if (userSpecifiedName == null) {
-            userSpecifiedName = getRandomVolumeName();
-        }
+        String userSpecifiedName = getVolumeNameFromCommand(cmd);
 
         VolumeVO volume = commitVolume(cmd, caller, owner, displayVolume, zoneId, diskOfferingId, provisioningType, size,
                 minIops, maxIops, parentVolume, userSpecifiedName, _uuidMgr.generateUuid(Volume.class, cmd.getCustomId()));
@@ -810,6 +841,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         Long newSize = null;
         Long newMinIops = null;
         Long newMaxIops = null;
+        Integer newHypervisorSnapshotReserve = null;
         boolean shrinkOk = cmd.getShrinkOk();
 
         VolumeVO volume = _volsDao.findById(cmd.getEntityId());
@@ -852,6 +884,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         // if we are to use the existing disk offering
         if (newDiskOffering == null) {
             newSize = cmd.getSize();
+            newHypervisorSnapshotReserve = volume.getHypervisorSnapshotReserve();
 
             // if the caller is looking to change the size of the volume
             if (newSize != null) {
@@ -910,10 +943,6 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                 throw new InvalidParameterValueException("There are no tags on the current disk offering. The new disk offering needs to have no tags, as well.");
             }
 
-            if (!areIntegersEqual(diskOffering.getHypervisorSnapshotReserve(), newDiskOffering.getHypervisorSnapshotReserve())) {
-                throw new InvalidParameterValueException("The hypervisor snapshot reverse on the new and old disk offerings must be equal.");
-            }
-
             if (newDiskOffering.getDomainId() != null) {
                 // not a public offering; check access
                 _configMgr.checkDiskOfferingAccess(CallContext.current().getCallingAccount(), newDiskOffering);
@@ -946,6 +975,9 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                 newMinIops = newDiskOffering.getMinIops();
                 newMaxIops = newDiskOffering.getMaxIops();
             }
+
+            // if the hypervisor snapshot reserve value is null, it must remain null (currently only KVM uses null and null is all KVM uses for a value here)
+            newHypervisorSnapshotReserve = volume.getHypervisorSnapshotReserve() != null ? newDiskOffering.getHypervisorSnapshotReserve() : null;
         }
 
         long currentSize = volume.getSize();
@@ -984,6 +1016,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
             volume.setSize(newSize);
             volume.setMinIops(newMinIops);
             volume.setMaxIops(newMaxIops);
+            volume.setHypervisorSnapshotReserve(newHypervisorSnapshotReserve);
 
             if (newDiskOffering != null) {
                 volume.setDiskOfferingId(cmd.getNewDiskOfferingId());
@@ -1009,13 +1042,13 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
 
                 try {
                     return orchestrateResizeVolume(volume.getId(), currentSize, newSize, newMinIops, newMaxIops,
-                            newDiskOffering != null ? cmd.getNewDiskOfferingId() : null, shrinkOk);
+                            newHypervisorSnapshotReserve, newDiskOffering != null ? cmd.getNewDiskOfferingId() : null, shrinkOk);
                 } finally {
                     _workJobDao.expunge(placeHolder.getId());
                 }
             } else {
                 Outcome<Volume> outcome = resizeVolumeThroughJobQueue(userVm.getId(), volume.getId(), currentSize, newSize, newMinIops, newMaxIops,
-                        newDiskOffering != null ? cmd.getNewDiskOfferingId() : null, shrinkOk);
+                        newHypervisorSnapshotReserve, newDiskOffering != null ? cmd.getNewDiskOfferingId() : null, shrinkOk);
 
                 try {
                     outcome.get();
@@ -1050,19 +1083,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         }
 
         return orchestrateResizeVolume(volume.getId(), currentSize, newSize, newMinIops, newMaxIops,
-                newDiskOffering != null ? cmd.getNewDiskOfferingId() : null, shrinkOk);
-    }
-
-    private static boolean areIntegersEqual(Integer i1, Integer i2) {
-        if (i1 == null) {
-            i1 = 0;
-        }
-
-        if (i2 == null) {
-            i2 = 0;
-        }
-
-        return i1.equals(i2);
+                newHypervisorSnapshotReserve, newDiskOffering != null ? cmd.getNewDiskOfferingId() : null, shrinkOk);
     }
 
     private void validateIops(Long minIops, Long maxIops) {
@@ -1077,9 +1098,12 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         }
     }
 
-    private VolumeVO orchestrateResizeVolume(long volumeId, long currentSize, long newSize, Long newMinIops, Long newMaxIops, Long newDiskOfferingId, boolean shrinkOk) {
+    private VolumeVO orchestrateResizeVolume(long volumeId, long currentSize, long newSize, Long newMinIops, Long newMaxIops,
+                                             Integer newHypervisorSnapshotReserve, Long newDiskOfferingId, boolean shrinkOk) {
         VolumeVO volume = _volsDao.findById(volumeId);
         UserVmVO userVm = _userVmDao.findById(volume.getInstanceId());
+        StoragePoolVO storagePool = _storagePoolDao.findById(volume.getPoolId());
+        boolean isManaged = storagePool.isManaged();
         /*
          * get a list of hosts to send the commands to, try the system the
          * associated vm is running on first, then the last known place it ran.
@@ -1098,8 +1122,6 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
 
             final String errorMsg = "The VM must be stopped or the disk detached in order to resize with the XenServer Hypervisor.";
 
-            StoragePoolVO storagePool = _storagePoolDao.findById(volume.getPoolId());
-
             if (storagePool.isManaged() && storagePool.getHypervisor() == HypervisorType.Any && hosts != null && hosts.length > 0) {
                 HostVO host = _hostDao.findById(hosts[0]);
 
@@ -1114,13 +1136,20 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
             }
         }
 
-        ResizeVolumePayload payload = new ResizeVolumePayload(newSize, newMinIops, newMaxIops, shrinkOk, instanceName, hosts);
+        ResizeVolumePayload payload = new ResizeVolumePayload(newSize, newMinIops, newMaxIops, newHypervisorSnapshotReserve,
+                shrinkOk, instanceName, hosts, isManaged);
 
         try {
             VolumeInfo vol = volFactory.getVolume(volume.getId());
             vol.addPayload(payload);
 
-            StoragePoolVO storagePool = _storagePoolDao.findById(vol.getPoolId());
+            // this call to resize has a different impact depending on whether the
+            // underlying primary storage is managed or not
+            // if managed, this is the chance for the plug-in to change IOPS value, if applicable
+            // if not managed, this is the chance for the plug-in to talk to the hypervisor layer
+            // to change the size of the disk
+            AsyncCallFuture<VolumeApiResult> future = volService.resize(vol);
+            VolumeApiResult result = future.get();
 
             // managed storage is designed in such a way that the storage plug-in does not
             // talk to the hypervisor layer; as such, if the storage is managed and the
@@ -1136,14 +1165,6 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                 _volsDao.update(volume.getId(), volume);
             }
 
-            // this call to resize has a different impact depending on whether the
-            // underlying primary storage is managed or not
-            // if managed, this is the chance for the plug-in to change IOPS value, if applicable
-            // if not managed, this is the chance for the plug-in to talk to the hypervisor layer
-            // to change the size of the disk
-            AsyncCallFuture<VolumeApiResult> future = volService.resize(vol);
-            VolumeApiResult result = future.get();
-
             if (result.isFailed()) {
                 s_logger.warn("Failed to resize the volume " + volume);
                 String details = "";
@@ -1157,6 +1178,9 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
 
             if (newDiskOfferingId != null) {
                 volume.setDiskOfferingId(newDiskOfferingId);
+            }
+            if (currentSize != newSize) {
+                volume.setSize(newSize);
             }
 
             _volsDao.update(volume.getId(), volume);
@@ -1255,7 +1279,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                 volOnCache.delete();
             }
 
-        } catch (Exception e) {
+        } catch (InterruptedException | ExecutionException | NoTransitionException e) {
             s_logger.warn("Failed to expunge volume:", e);
             return false;
         }
@@ -1441,6 +1465,15 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         if (!(Volume.State.Allocated.equals(volumeToAttach.getState()) || Volume.State.Ready.equals(volumeToAttach.getState()) || Volume.State.Uploaded.equals(volumeToAttach
                 .getState()))) {
             throw new InvalidParameterValueException("Volume state must be in Allocated, Ready or in Uploaded state");
+        }
+
+        Account owner = _accountDao.findById(volumeToAttach.getAccountId());
+
+        try {
+            _resourceLimitMgr.checkResourceLimit(owner, ResourceType.primary_storage, volumeToAttach.getSize());
+        } catch (ResourceAllocationException e) {
+            s_logger.error("primary storage resource limit check failed", e);
+            throw new InvalidParameterValueException(e.getMessage());
         }
 
         HypervisorType rootDiskHyperType = vm.getHypervisorType();
@@ -1715,8 +1748,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     }
 
     private void validateRootVolumeDetachAttach(VolumeVO volume, UserVmVO vm) {
-        if (!(vm.getHypervisorType() == HypervisorType.XenServer || vm.getHypervisorType() == HypervisorType.VMware)) {
-            throw new InvalidParameterValueException("Root volume detach is allowed for hypervisor type " + HypervisorType.XenServer + " only");
+        if (!(vm.getHypervisorType() == HypervisorType.XenServer || vm.getHypervisorType() == HypervisorType.VMware || vm.getHypervisorType() == HypervisorType.KVM || vm.getHypervisorType() == HypervisorType.Simulator)) {
+            throw new InvalidParameterValueException("Root volume detach is not supported for hypervisor type " + vm.getHypervisorType() );
         }
         if (!(vm.getState() == State.Stopped) || (vm.getState() == State.Destroyed)) {
             throw new InvalidParameterValueException("Root volume detach can happen only when vm is in states: " + State.Stopped.toString() + " or " + State.Destroyed.toString());
@@ -1803,6 +1836,26 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
             }
 
             throw new CloudRuntimeException(errorMsg);
+        }
+    }
+
+    public void updateMissingRootDiskController(final VMInstanceVO vm, final String rootVolChainInfo) {
+        if (vm == null || !VirtualMachine.Type.User.equals(vm.getType()) || Strings.isNullOrEmpty(rootVolChainInfo)) {
+            return;
+        }
+        String rootDiskController = null;
+        try {
+            final VirtualMachineDiskInfo infoInChain = _gson.fromJson(rootVolChainInfo, VirtualMachineDiskInfo.class);
+            if (infoInChain != null) {
+                rootDiskController = infoInChain.getControllerFromDeviceBusName();
+            }
+            final UserVmVO userVmVo = _userVmDao.findById(vm.getId());
+            if ((rootDiskController != null) && (!rootDiskController.isEmpty())) {
+                _userVmDao.loadDetails(userVmVo);
+                _userVmMgr.persistDeviceBusInfo(userVmVo, rootDiskController);
+            }
+        } catch (JsonParseException e) {
+            s_logger.debug("Error parsing chain info json: " + e.getMessage());
         }
     }
 
@@ -1895,6 +1948,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                                 throw new InvalidParameterValueException("Cannot migrate ROOT volume of a stopped VM to a storage pool in a different VMware datacenter");
                             }
                         }
+                        updateMissingRootDiskController(vm, vol.getChainInfo());
                     }
                 }
             }
@@ -2417,7 +2471,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
 
             deviceId = getDeviceId(vm.getId(), deviceId);
 
-            DiskTO disk = new DiskTO(volTO, deviceId, volumeToAttach.getPath(), volumeToAttach.getVolumeType());
+            DiskTO disk = storageMgr.getDiskWithThrottling(volTO, volumeToAttach.getVolumeType(), deviceId, volumeToAttach.getPath(),
+                    vm.getServiceOfferingId(), volumeToAttach.getDiskOfferingId());
 
             AttachCommand cmd = new AttachCommand(disk, vm.getInstanceName());
 
@@ -2441,6 +2496,12 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                 details.put(DiskTO.CHAP_TARGET_USERNAME, chapInfo.getTargetUsername());
                 details.put(DiskTO.CHAP_TARGET_SECRET, chapInfo.getTargetSecret());
             }
+            _userVmDao.loadDetails(vm);
+            Map<String, String> controllerInfo = new HashMap<String, String>();
+            controllerInfo.put(VmDetailConstants.ROOT_DISK_CONTROLLER, vm.getDetail(VmDetailConstants.ROOT_DISK_CONTROLLER));
+            controllerInfo.put(VmDetailConstants.DATA_DISK_CONTROLLER, vm.getDetail(VmDetailConstants.DATA_DISK_CONTROLLER));
+            cmd.setControllerInfo(controllerInfo);
+            s_logger.debug("Attach volume id:" + volumeToAttach.getId() +  " on VM id:" + vm.getId() + " has controller info:" + controllerInfo);
 
             try {
                 answer = (AttachAnswer)_agentMgr.send(hostId, cmd);
@@ -2690,9 +2751,9 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         return new VmJobVolumeOutcome(workJob, volumeId);
     }
 
-    public Outcome<Volume> resizeVolumeThroughJobQueue(final Long vmId, final long volumeId,
-            final long currentSize, final long newSize, final Long newMinIops, final Long newMaxIops, final Long newServiceOfferingId, final boolean shrinkOk) {
-
+    public Outcome<Volume> resizeVolumeThroughJobQueue(final Long vmId, final long volumeId, final long currentSize, final long newSize,
+                                                       final Long newMinIops, final Long newMaxIops, final Integer newHypervisorSnapshotReserve,
+                                                       final Long newServiceOfferingId, final boolean shrinkOk) {
         final CallContext context = CallContext.current();
         final User callingUser = context.getCallingUser();
         final Account callingAccount = context.getCallingAccount();
@@ -2713,7 +2774,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
 
         // save work context info (there are some duplications)
         VmWorkResizeVolume workInfo = new VmWorkResizeVolume(callingUser.getId(), callingAccount.getId(), vm.getId(),
-                VolumeApiServiceImpl.VM_WORK_JOB_HANDLER, volumeId, currentSize, newSize, newMinIops, newMaxIops, newServiceOfferingId, shrinkOk);
+                VolumeApiServiceImpl.VM_WORK_JOB_HANDLER, volumeId, currentSize, newSize, newMinIops, newMaxIops, newHypervisorSnapshotReserve, newServiceOfferingId, shrinkOk);
         workJob.setCmdInfo(VmWorkSerializer.serialize(workInfo));
 
         _jobMgr.submitAsyncJob(workJob, VmWorkConstants.VM_WORK_QUEUE, vm.getId());
@@ -2847,7 +2908,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     @ReflectionUse
     private Pair<JobInfo.Status, String> orchestrateResizeVolume(VmWorkResizeVolume work) throws Exception {
         Volume vol = orchestrateResizeVolume(work.getVolumeId(), work.getCurrentSize(), work.getNewSize(), work.getNewMinIops(), work.getNewMaxIops(),
-                work.getNewServiceOfferingId(), work.isShrinkOk());
+                work.getNewHypervisorSnapshotReserve(), work.getNewServiceOfferingId(), work.isShrinkOk());
         return new Pair<JobInfo.Status, String>(JobInfo.Status.SUCCEEDED,
                 _jobMgr.marshallResultObject(new Long(vol.getId())));
     }

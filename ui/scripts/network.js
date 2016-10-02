@@ -3526,6 +3526,8 @@
                                                     if ('vpc' in args.context) {
                                                         var data = {
                                                             //listAll: true,  //do not pass listAll to listNetworks under VPC
+                                                            domainid: args.context.vpc[0].domainid,
+                                                            account: args.context.vpc[0].account,
                                                             supportedservices: 'Lb'
                                                         };
                                                         if (args.context.ipAddresses[0].associatednetworkid == null) {
@@ -3618,7 +3620,37 @@
                                                     requireValidation: true,
                                                     buttonLabel: 'Configure',
                                                     action: cloudStack.uiCustom.healthCheck()
-
+                                                },
+                                                isHidden: function(args) {
+                                                    if (!('vpc' in args.context)) {  //From Guest Network section
+                                                        var lbProviderIsNetscaler = false;
+                                                        $.ajax({
+                                                            url: createURL('listNetworkOfferings'),
+                                                            data: {
+                                                                id: args.context.networks[0].networkofferingid
+                                                            },
+                                                            async: false,
+                                                            success: function(json) {
+                                                                var networkOffering = json.listnetworkofferingsresponse.networkoffering[0];
+                                                                var services = networkOffering.service;
+                                                                lbProviderIsNetscaler = checkIfNetScalerProviderIsEnabled(services);
+                                                            }
+                                                        });
+                                                        if (lbProviderIsNetscaler == true) { //Health-Check is only supported on Netscaler (but not on any other provider)
+                                                            return false; //Show Health-Check button
+                                                        } else {
+                                                            return 2; //Hide Health-Check button (Both Header and Form)
+                                                        }
+                                                    } else { //From VPC section
+                                                        var lbProviderIsNetscaler;
+                                                        var services = args.context.vpc[0].service;
+                                                        lbProviderIsNetscaler = checkIfNetScalerProviderIsEnabled(services);
+                                                        if (lbProviderIsNetscaler == true) { //Health-Check is only supported on Netscaler (but not on any other provider)
+                                                            return false; //Show Health-Check button
+                                                        } else {
+                                                            return 2; //Hide Health-Check button (both Header and Form)
+                                                        }
+                                                    }
                                                 }
                                             },
 
@@ -3641,22 +3673,7 @@
                                                             success: function(json) {
                                                                 var networkOffering = json.listnetworkofferingsresponse.networkoffering[0];
                                                                 var services = networkOffering.service;
-                                                                if (services != null) {
-                                                                    for (var i = 0; i < services.length; i++) {
-                                                                        if (services[i].name == 'Lb') {
-                                                                            var providers = services[i].provider;
-                                                                            if (providers != null) {
-                                                                                for (var k = 0; k < providers.length; k++) {
-                                                                                    if (providers[k].name == 'Netscaler') {
-                                                                                        lbProviderIsNetscaler = true;
-                                                                                        break;
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                            break;
-                                                                        }
-                                                                    }
-                                                                }
+                                                                lbProviderIsNetscaler = checkIfNetScalerProviderIsEnabled(services);
                                                             }
                                                         });
                                                         if (lbProviderIsNetscaler == true) { //AutoScale is only supported on Netscaler (but not on any other provider like VirtualRouter)
@@ -3665,8 +3682,16 @@
                                                             return 2; //hide Autoscale button (both header and form)
                                                         }
                                                     } else { //from VPC section
-                                                        //VPC doesn't support autoscale
-                                                        return 2;
+                                                        var lbProviderIsNetscaler;
+                                                        var services = args.context.vpc[0].service;
+
+                                                        lbProviderIsNetscaler = checkIfNetScalerProviderIsEnabled(services);
+
+                                                        if (lbProviderIsNetscaler == true) { //AutoScale is only supported on Netscaler (but not on any other provider like VirtualRouter)
+                                                            return false; //show AutoScale button
+                                                        } else {
+                                                            return 2; //hide Autoscale button (both header and form)
+                                                        }
                                                     }
                                                 }
                                             },
@@ -4158,6 +4183,8 @@
                                                     if ('vpc' in args.context) {
                                                         var data = {
                                                             //listAll: true,  //do not pass listAll to listNetworks under VPC
+                                                            domainid: args.context.vpc[0].domainid,
+                                                            account: args.context.vpc[0].account,
                                                             supportedservices: 'PortForwarding'
                                                         };
                                                         if (args.context.ipAddresses[0].associatednetworkid == null) {
@@ -5811,32 +5838,14 @@
                                         label: 'label.name'
                                     }
                                 }, {
-                                    id: {
-                                        label: 'label.id'
-                                    },
-                                    zonename: {
-                                        label: 'label.zone'
-                                    },
-                                    dns1: {
-                                        label: 'label.dns'
-                                    },
-                                    gateway: {
-                                        label: 'label.gateway'
-                                    },
-                                    publicip: {
-                                        label: 'label.public.ip'
-                                    },
-                                    guestipaddress: {
-                                        label: 'label.guest.ip'
-                                    },
-                                    linklocalip: {
-                                        label: 'label.linklocal.ip'
-                                    },
                                     state: {
                                         label: 'label.state'
                                     },
-                                    serviceofferingname: {
-                                        label: 'label.service.offering'
+                                    hostname: {
+                                        label: 'label.host'
+                                    },
+                                    linklocalip: {
+                                        label: 'label.linklocal.ip'
                                     },
                                     isredundantrouter: {
                                         label: 'label.redundant.router',
@@ -5847,6 +5856,30 @@
                                             return "No";
                                         }
                                     },
+                                    redundantstate: {
+                                        label: 'label.redundant.state'
+                                    },
+                                    id: {
+                                        label: 'label.id'
+                                    },
+                                    serviceofferingname: {
+                                        label: 'label.service.offering'
+                                    },
+                                    zonename: {
+                                        label: 'label.zone'
+                                    },
+                                    gateway: {
+                                        label: 'label.gateway'
+                                    },
+                                    publicip: {
+                                        label: 'label.public.ip'
+                                    },
+                                    guestipaddress: {
+                                        label: 'label.guest.ip'
+                                    },
+                                    dns1: {
+                                        label: 'label.dns'
+                                    },
                                     account: {
                                         label: 'label.account'
                                     },
@@ -5854,6 +5887,7 @@
                                         label: 'label.domain'
                                     }
                                 }],
+
                                 dataProvider: function(args) {
                                     $.ajax({
                                         url: createURL("listRouters&listAll=true&vpcid=" + args.context.vpc[0].id),
@@ -6021,7 +6055,7 @@
                                             var items = [];
                                             items.push({
                                                 id: '',
-                                                description: 'label.none'
+                                                description: _l('label.none')
                                             });
                                             items.push({
                                                 id: 'modp1024',
@@ -6089,7 +6123,7 @@
                                             var items = [];
                                             items.push({
                                                 id: '',
-                                                description: 'label.none'
+                                                description: _l('label.none')
                                             });
                                             items.push({
                                                 id: 'modp1024',
@@ -6129,6 +6163,14 @@
                                         docID: 'helpVPNGatewayDeadPeerDetection',
                                         isBoolean: true,
                                         isChecked: false
+                                    },
+
+                                    forceencap: {
+                                        label: 'label.vpn.force.encapsulation',
+                                        docID: 'helpVPNGatewayForceEncapsulation',
+                                        docID: 'helpVPNGatewayForceEncapsulation',
+                                        isBoolean: true,
+                                        isChecked: false
                                     }
                                 }
                             },
@@ -6140,7 +6182,8 @@
                                     ipsecpsk: args.data.ipsecpsk,
                                     ikelifetime: args.data.ikelifetime,
                                     esplifetime: args.data.esplifetime,
-                                    dpd: (args.data.dpd == "on")
+                                    dpd: (args.data.dpd == "on"),
+                                    forceencap: (args.data.forceencap == "on")
                                 };
 
                                 var ikepolicy = args.data.ikeEncryption + '-' + args.data.ikeHash;
@@ -6196,7 +6239,8 @@
                                         ipsecpsk: args.data.ipsecpsk,
                                         ikelifetime: args.data.ikelifetime,
                                         esplifetime: args.data.esplifetime,
-                                        dpd: (args.data.dpd == "on")
+                                        dpd: (args.data.dpd == "on"),
+                                        forceencap: (args.data.forceencap == "on")
                                     };
 
                                     var ikepolicy = args.data.ikeEncryption + '-' + args.data.ikeHash;
@@ -6219,7 +6263,7 @@
                                         url: createURL('updateVpnCustomerGateway'),
                                         data: data,
                                         success: function(json) {
-                                            var jobId = json.updatecustomergatewayresponse.jobid;
+                                            var jobId = json.updatevpncustomergatewayresponse.jobid;
                                             args.response.success({
                                                 _custom: {
                                                     jobId: jobId,
@@ -6231,6 +6275,9 @@
                                                     }
                                                 }
                                             });
+                                        },
+                                        error: function(json) {
+                                            args.response.error(parseXMLHttpResponse(json));
                                         }
                                     });
                                 },
@@ -6357,7 +6404,7 @@
                                             var items = [];
                                             items.push({
                                                 id: '',
-                                                description: 'label.none'
+                                                description: _l('label.none')
                                             });
                                             items.push({
                                                 id: 'modp1024',
@@ -6425,7 +6472,7 @@
                                             var items = [];
                                             items.push({
                                                 id: '',
-                                                description: 'label.none'
+                                                description: _l('label.none')
                                             });
                                             items.push({
                                                 id: 'modp1024',
@@ -6460,6 +6507,13 @@
 
                                     dpd: {
                                         label: 'label.dead.peer.detection',
+                                        isBoolean: true,
+                                        isEditable: true,
+                                        converter: cloudStack.converters.toBooleanText
+                                    },
+
+                                    forceencap: {
+                                        label: 'label.vpn.force.encapsulation',
                                         isBoolean: true,
                                         isEditable: true,
                                         converter: cloudStack.converters.toBooleanText
@@ -6520,6 +6574,26 @@
             }
         }
     };
+
+    function checkIfNetScalerProviderIsEnabled(services) {
+        if (services != null) {
+            for (var i = 0; i < services.length; i++) {
+                if (services[i].name == 'Lb') {
+                    var providers = services[i].provider;
+                    if (providers != null) {
+                        for (var k = 0; k < providers.length; k++) {
+                            if (providers[k].name == 'Netscaler') {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+            }
+        }
+
+        return false;
+    }
 
     function getExtaPropertiesForIpObj(ipObj, args) {
         if (!('vpc' in args.context)) { //***** Guest Network section > Guest Network page > IP Address page *****

@@ -37,6 +37,7 @@ import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.managed.context.ManagedContextTimerTask;
 import org.apache.log4j.Logger;
+import org.slf4j.MDC;
 
 import com.cloud.agent.api.AgentControlAnswer;
 import com.cloud.agent.api.AgentControlCommand;
@@ -226,7 +227,8 @@ public class Agent implements HandlerFactory, IAgentControl {
         try {
             _connection.start();
         } catch (final NioConnectionException e) {
-            throw new CloudRuntimeException("Unable to start the connection!", e);
+            s_logger.warn("NIO Connection Exception  " + e);
+            s_logger.info("Attempted to connect to the server, but received an unexpected exception, trying again...");
         }
         while (!_connection.isStartup()) {
             _shell.getBackoffAlgorithm().waitBeforeRetry();
@@ -234,7 +236,8 @@ public class Agent implements HandlerFactory, IAgentControl {
             try {
                 _connection.start();
             } catch (final NioConnectionException e) {
-                throw new CloudRuntimeException("Unable to start the connection!", e);
+                s_logger.warn("NIO Connection Exception  " + e);
+                s_logger.info("Attempted to connect to the server, but received an unexpected exception, trying again...");
             }
         }
     }
@@ -411,7 +414,8 @@ public class Agent implements HandlerFactory, IAgentControl {
             try {
                 _connection.start();
             } catch (final NioConnectionException e) {
-                throw new CloudRuntimeException("Unable to start the connection!", e);
+                s_logger.warn("NIO Connection Exception  " + e);
+                s_logger.info("Attempted to connect to the server, but received an unexpected exception, trying again...");
             }
             _shell.getBackoffAlgorithm().waitBeforeRetry();
         } while (!_connection.isStartup());
@@ -462,6 +466,9 @@ public class Agent implements HandlerFactory, IAgentControl {
                 final Command cmd = cmds[i];
                 Answer answer;
                 try {
+                    if (cmd.getContextParam("logid") != null) {
+                        MDC.put("logcontextid", cmd.getContextParam("logid"));
+                    }
                     if (s_logger.isDebugEnabled()) {
                         if (!requestLogged) // ensures request is logged only once per method call
                         {
@@ -615,6 +622,9 @@ public class Agent implements HandlerFactory, IAgentControl {
         } else if (obj instanceof Request) {
             final Request req = (Request)obj;
             final Command command = req.getCommand();
+            if (command.getContextParam("logid") != null) {
+                MDC.put("logcontextid", command.getContextParam("logid"));
+            }
             Answer answer = null;
             _inProgress.incrementAndGet();
             try {

@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 
 import org.apache.log4j.Logger;
@@ -74,9 +73,9 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.vm.ReservationContext;
 import com.cloud.vm.ReservationContextImpl;
+import com.google.common.base.Strings;
 
 @Component
-@Local(value = {DomainManager.class, DomainService.class})
 public class DomainManagerImpl extends ManagerBase implements DomainManager, DomainService {
     public static final Logger s_logger = Logger.getLogger(DomainManagerImpl.class);
 
@@ -221,6 +220,25 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
     }
 
     @Override
+    public Domain findDomainByIdOrPath(final Long id, final String domainPath) {
+        Long domainId = id;
+        if (domainId == null || domainId < 1L) {
+            if (Strings.isNullOrEmpty(domainPath) || domainPath.trim().isEmpty()) {
+                domainId = Domain.ROOT_DOMAIN;
+            } else {
+                final Domain domainVO = findDomainByPath(domainPath.trim());
+                if (domainVO != null) {
+                    return domainVO;
+                }
+            }
+        }
+        if (domainId != null && domainId > 0L) {
+            return _domainDao.findById(domainId);
+        }
+        return null;
+    }
+
+    @Override
     public Set<Long> getDomainParentIds(long domainId) {
         return _domainDao.getDomainParentIds(domainId);
     }
@@ -310,6 +328,7 @@ public class DomainManagerImpl extends ManagerBase implements DomainManager, Dom
 
             cleanupDomainOfferings(domain.getId());
             CallContext.current().putContextParameter(Domain.class, domain.getUuid());
+            _messageBus.publish(_name, MESSAGE_REMOVE_DOMAIN_EVENT, PublishScope.LOCAL, domain);
             return true;
         } catch (Exception ex) {
             s_logger.error("Exception deleting domain with id " + domain.getId(), ex);

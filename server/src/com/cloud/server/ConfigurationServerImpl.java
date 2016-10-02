@@ -155,6 +155,8 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
     protected ConfigDepot _configDepot;
     @Inject
     protected ConfigurationManager _configMgr;
+    @Inject
+    protected ManagementService _mgrService;
 
 
     public ConfigurationServerImpl() {
@@ -416,30 +418,6 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
         });
     }
 
-    /*
-    private void updateUuids() {
-        _identityDao.initializeDefaultUuid("disk_offering");
-        _identityDao.initializeDefaultUuid("network_offerings");
-        _identityDao.initializeDefaultUuid("vm_template");
-        _identityDao.initializeDefaultUuid("user");
-        _identityDao.initializeDefaultUuid("domain");
-        _identityDao.initializeDefaultUuid("account");
-        _identityDao.initializeDefaultUuid("guest_os");
-        _identityDao.initializeDefaultUuid("guest_os_category");
-        _identityDao.initializeDefaultUuid("hypervisor_capabilities");
-        _identityDao.initializeDefaultUuid("snapshot_policy");
-        _identityDao.initializeDefaultUuid("security_group");
-        _identityDao.initializeDefaultUuid("security_group_rule");
-        _identityDao.initializeDefaultUuid("physical_network");
-        _identityDao.initializeDefaultUuid("physical_network_traffic_types");
-        _identityDao.initializeDefaultUuid("physical_network_service_providers");
-        _identityDao.initializeDefaultUuid("virtual_router_providers");
-        _identityDao.initializeDefaultUuid("networks");
-        _identityDao.initializeDefaultUuid("user_ip_address");
-        _identityDao.initializeDefaultUuid("counter");
-    }
-     */
-
     private String getMountParent() {
         return getEnvironmentProperty("mount.parent");
     }
@@ -471,7 +449,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
             public void doInTransactionWithoutResult(TransactionStatus status) {
                 TransactionLegacy txn = TransactionLegacy.currentTxn();
                 // insert system account
-                String insertSql = "INSERT INTO `cloud`.`account` (id, uuid, account_name, type, domain_id, account.default) VALUES (1, UUID(), 'system', '1', '1', 1)";
+                String insertSql = "INSERT INTO `cloud`.`account` (id, uuid, account_name, type, role_id, domain_id, account.default) VALUES (1, UUID(), 'system', '1', '1', '1', 1)";
 
                 try {
                     PreparedStatement stmt = txn.prepareAutoCloseStatement(insertSql);
@@ -498,8 +476,8 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
                 String lastname = "cloud";
 
                 // create an account for the admin user first
-                insertSql = "INSERT INTO `cloud`.`account` (id, uuid, account_name, type, domain_id, account.default) VALUES (" + id + ", UUID(), '" + username
-                        + "', '1', '1', 1)";
+                insertSql = "INSERT INTO `cloud`.`account` (id, uuid, account_name, type, role_id, domain_id, account.default) VALUES (" + id + ", UUID(), '" + username
+                        + "', '1', '1', '1', 1)";
                 try {
                     PreparedStatement stmt = txn.prepareAutoCloseStatement(insertSql);
                     stmt.executeUpdate();
@@ -692,7 +670,7 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
         if (already == null) {
             TransactionLegacy txn = TransactionLegacy.currentTxn();
             try {
-                String rpassword = PasswordGenerator.generatePresharedKey(8);
+                String rpassword = _mgrService.generateRandomPassword();
                 String wSql = "INSERT INTO `cloud`.`configuration` (category, instance, component, name, value, description) "
                 + "VALUES ('Secure','DEFAULT', 'management-server','system.vm.password', ?,'randmon password generated each management server starts for system vm')";
                 PreparedStatement stmt = txn.prepareAutoCloseStatement(wSql);

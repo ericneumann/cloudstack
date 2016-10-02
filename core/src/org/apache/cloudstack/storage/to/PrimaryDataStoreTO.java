@@ -37,6 +37,7 @@ public class PrimaryDataStoreTO implements DataStoreTO {
     public static final String CHAP_INITIATOR_SECRET = PrimaryDataStore.CHAP_INITIATOR_SECRET;
     public static final String CHAP_TARGET_USERNAME = PrimaryDataStore.CHAP_TARGET_USERNAME;
     public static final String CHAP_TARGET_SECRET = PrimaryDataStore.CHAP_TARGET_SECRET;
+    public static final String REMOVE_AFTER_COPY = PrimaryDataStore.REMOVE_AFTER_COPY;
     public static final String VOLUME_SIZE = PrimaryDataStore.VOLUME_SIZE;
 
     private final String uuid;
@@ -50,6 +51,7 @@ public class PrimaryDataStoreTO implements DataStoreTO {
     private final String url;
     private Map<String, String> details;
     private static final String pathSeparator = "/";
+    private Boolean fullCloneFlag;
 
     public PrimaryDataStoreTO(PrimaryDataStore dataStore) {
         this.uuid = dataStore.getUuid();
@@ -142,5 +144,13 @@ public class PrimaryDataStoreTO implements DataStoreTO {
             .append(poolType)
             .append("]")
             .toString();
+    }
+
+    public Boolean isFullCloneFlag() {
+        return fullCloneFlag;
+    }
+
+    public void setFullCloneFlag(Boolean fullCloneFlag) {
+        this.fullCloneFlag = fullCloneFlag;
     }
 }

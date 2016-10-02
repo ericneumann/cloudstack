@@ -21,7 +21,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
@@ -82,7 +81,6 @@ import com.cloud.vm.VirtualMachine.Type;
 import com.cloud.vm.VirtualMachineProfile;
 
 @Component
-@Local(value = {NetworkOrchestrationService.class, NetworkService.class})
 public class MockNetworkManagerImpl extends ManagerBase implements NetworkOrchestrationService, NetworkService {
     @Inject
     NetworkServiceMapDao _ntwkSrvcDao;
@@ -249,7 +247,7 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkOrches
      */
     @Override
     public Network updateGuestNetwork(long networkId, String name, String displayText, Account callerAccount, User callerUser, String domainSuffix,
-        Long networkOfferingId, Boolean changeCidr, String guestVmCidr, Boolean displayNetwork, String newUUID) {
+        Long networkOfferingId, Boolean changeCidr, String guestVmCidr, Boolean displayNetwork, String newUUID,boolean updateInSequence, boolean forced) {
         // TODO Auto-generated method stub
         return null;
     }
@@ -841,6 +839,31 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkOrches
     @Override
     public void prepareAllNicsForMigration(VirtualMachineProfile vm, DeployDestination dest) {
         return;
+    }
+
+    @Override
+    public boolean canUpdateInSequence(Network network) {
+        return false;
+    }
+
+    @Override
+    public List<String> getServicesNotSupportedInNewOffering(Network network, long newNetworkOfferingId) {
+        return null;
+    }
+
+    @Override
+    public void cleanupConfigForServicesInNetwork(List<String> services, Network network) {
+        return;
+    }
+
+    @Override
+    public void configureUpdateInSequence(Network network) {
+        return;
+    }
+
+    @Override
+    public int getResourceCount(Network network) {
+        return 0;
     }
 
     @Override

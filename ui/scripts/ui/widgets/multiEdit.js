@@ -104,7 +104,7 @@
                         $(data).each(function() {
                             var item = this;
                             var $itemRow = _medit.multiItem.itemRow(item, options.itemActions, multiRule, $tbody);
-
+                            $itemRow.data('json-obj', item);
                             $itemRow.appendTo($tbody);
                             newItemRows.push($itemRow);
 
@@ -277,9 +277,6 @@
                 if ($td.html() == '') {
                     $td.addClass('blank');
                 }
-
-                // Align width to main header
-                _medit.refreshItemWidths($multi);
 
                 if (data._hideFields &&
                     $.inArray(fieldName, data._hideFields) > -1) {

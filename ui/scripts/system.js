@@ -83,9 +83,14 @@
                         success: function (json) {
                             var domain = json.listdomainsresponse.domain[0];
 
-                            cloudStack.dialog.notice({
-                                message: '<ul><li>' + _l('label.account') + ': ' + data.account + '</li>' + '<li>' + _l('label.domain') + ': ' + domain.path + '</li></ul>'
-                            });
+                            if (data.account != null)
+                                cloudStack.dialog.notice({
+                                    message: '<ul><li>' + _l('label.account') + ': ' + data.account + '</li>' + '<li>' + _l('label.domain') + ': ' + domain.path + '</li></ul>'
+                                });
+                            else
+                                cloudStack.dialog.notice({
+                                    message: '<ul><li>' + _l('label.domain') + ': ' + domain.path + '</li></ul>'
+                                });
                         }
                     });
                 } else {
@@ -743,7 +748,8 @@
                                                 array1.push("&endip=" + args.data.endip);
 
                                                 if (args.data.account) {
-                                                    array1.push("&account=" + args.data.account.account);
+                                                    if (args.data.account.account)
+                                                        array1.push("&account=" + args.data.account.account);
                                                     array1.push("&domainid=" + args.data.account.domainid);
                                                 }
 
@@ -774,7 +780,7 @@
                                         },
                                         actionPreFilter: function (args) {
                                             var actionsToShow =[ 'destroy'];
-                                            if (args.context.multiRule[0].domain == 'ROOT' && args.context.multiRule[0].account.account == 'system')
+                                            if (args.context.multiRule[0].domain == 'ROOT' && args.context.multiRule[0].account != null && args.context.multiRule[0].account.account == 'system')
                                             actionsToShow.push('addAccount'); else
                                             actionsToShow.push('releaseFromAccount');
                                             return actionsToShow;
@@ -864,9 +870,13 @@
                                                     var data = {
                                                         id: args.context.multiRule[0].id,
                                                         zoneid: args.context.multiRule[0].zoneid,
-                                                        domainid: args.data.domainid,
-                                                        account: args.data.account
+                                                        domainid: args.data.domainid
                                                     };
+                                                    if (args.data.account) {
+                                                        $.extend(data, {
+                                                            account: args.data.account
+                                                        });
+                                                    }
                                                     $.ajax({
                                                         url: createURL('dedicatePublicIpRange'),
                                                         data: data,
@@ -898,7 +908,7 @@
                                                         data: $.map(items, function (item) {
                                                             return $.extend(item, {
                                                                 account: {
-                                                                    _buttonLabel: item.account,
+                                                                    _buttonLabel: item.account ? '[' + item.domain + '] ' + item.account: item.domain,
                                                                     account: item.account,
                                                                     domainid: item.domainid
                                                                 }
@@ -2711,6 +2721,15 @@
                                                         hiddenFields.push('publicip');
                                                         //In Basic zone, guest IP is public IP. So, publicip is not returned by listRouters API. Only guestipaddress is returned by listRouters API.
                                                     }
+
+                                                    if ('routers' in args.context && args.context.routers[0].vpcid != undefined) {
+                                                        hiddenFields.push('guestnetworkid');
+                                                        hiddenFields.push('guestnetworkname');
+                                                    } else if ('routers' in args.context && args.context.routers[0].guestnetworkid != undefined) {
+                                                        hiddenFields.push('vpcid');
+                                                        hiddenFields.push('vpcname');
+                                                    }
+
                                                     return hiddenFields;
                                                 },
                                                 fields:[ {
@@ -2733,6 +2752,15 @@
                                                     },
                                                     guestnetworkid: {
                                                         label: 'label.network.id'
+                                                    },
+                                                    guestnetworkname: {
+                                                        label: 'label.network.name'
+                                                    },
+                                                    vpcid: {
+                                                        label: 'label.vpc.id'
+                                                    },
+                                                    vpcname: {
+                                                        label: 'label.vpc'
                                                     },
                                                     publicip: {
                                                         label: 'label.public.ip'
@@ -3237,6 +3265,15 @@
                                                         hiddenFields.push('publicip');
                                                         //In Basic zone, guest IP is public IP. So, publicip is not returned by listRouters API. Only guestipaddress is returned by listRouters API.
                                                     }
+
+                                                    if ('routers' in args.context && args.context.routers[0].vpcid != undefined) {
+                                                        hiddenFields.push('guestnetworkid');
+                                                        hiddenFields.push('guestnetworkname');
+                                                    } else if ('routers' in args.context && args.context.routers[0].guestnetworkid != undefined) {
+                                                        hiddenFields.push('vpcid');
+                                                        hiddenFields.push('vpcname');
+                                                    }
+
                                                     return hiddenFields;
                                                 },
                                                 fields:[ {
@@ -3259,6 +3296,15 @@
                                                     },
                                                     guestnetworkid: {
                                                         label: 'label.network.id'
+                                                    },
+                                                    guestnetworkname: {
+                                                        label: 'label.network.name'
+                                                    },
+                                                    vpcid: {
+                                                        label: 'label.vpc.id'
+                                                    },
+                                                    vpcname: {
+                                                        label: 'label.vpc'
                                                     },
                                                     publicip: {
                                                         label: 'label.public.ip'
@@ -5728,6 +5774,9 @@
                                         },
                                         l3gatewayserviceuuid: {
                                             label: 'label.nicira.l3gatewayserviceuuid'
+                                        },
+										l2gatewayserviceuuid: {
+                                            label: 'label.nicira.l2gatewayserviceuuid'
                                         }
                                     }
                                 },
@@ -6761,6 +6810,15 @@
                                                         hiddenFields.push('publicip');
                                                         //In Basic zone, guest IP is public IP. So, publicip is not returned by listRouters API. Only guestipaddress is returned by listRouters API.
                                                     }
+
+                                                    if ('routers' in args.context && args.context.routers[0].vpcid != undefined) {
+                                                        hiddenFields.push('guestnetworkid');
+                                                        hiddenFields.push('guestnetworkname');
+                                                    } else if ('routers' in args.context && args.context.routers[0].guestnetworkid != undefined) {
+                                                        hiddenFields.push('vpcid');
+                                                        hiddenFields.push('vpcname');
+                                                    }
+
                                                     return hiddenFields;
                                                 },
                                                 fields:[ {
@@ -6783,6 +6841,15 @@
                                                     },
                                                     guestnetworkid: {
                                                         label: 'label.network.id'
+                                                    },
+                                                    guestnetworkname: {
+                                                        label: 'label.network.name'
+                                                    },
+                                                    vpcid: {
+                                                        label: 'label.vpc.id'
+                                                    },
+                                                    vpcname: {
+                                                        label: 'label.vpc'
                                                     },
                                                     publicip: {
                                                         label: 'label.public.ip'
@@ -7042,7 +7109,7 @@
                                          },
                                          apiversion: {
                                              label: 'label.api.version',
-                                             defaultValue: 'v1_0',
+                                             defaultValue: 'v3_2',
                                              validation: {
                                                  required: true
                                              },
@@ -7805,7 +7872,7 @@
                                             return 'label.metrics';
                                         }
                                     }
-                                },
+                                }
                             },
 
                             detailView: {
@@ -8173,6 +8240,82 @@
                                                     args.response.error('Could not edit zone information; please ensure all fields are valid.');
                                                 }
                                             });
+                                        }
+                                    },
+                                    enableOutOfBandManagement: {
+                                        label: 'label.outofbandmanagement.enable',
+                                        action: function (args) {
+                                            var data = {
+                                                zoneid: args.context.physicalResources[0].id
+                                            };
+                                            $.ajax({
+                                                url: createURL("enableOutOfBandManagementForZone"),
+                                                data: data,
+                                                success: function (json) {
+                                                    var jid = json.enableoutofbandmanagementforzoneresponse.jobid;
+                                                    args.response.success({
+                                                        _custom: {
+                                                            jobId: jid,
+                                                            getActionFilter: function () {
+                                                                return zoneActionfilter;
+                                                            }
+                                                        }
+                                                    });
+                                                },
+                                                error: function (json) {
+                                                    args.response.error(parseXMLHttpResponse(json));
+                                                }
+
+                                            });
+                                        },
+                                        messages: {
+                                            confirm: function (args) {
+                                                return 'message.outofbandmanagement.enable';
+                                            },
+                                            notification: function (args) {
+                                                return 'message.outofbandmanagement.enable';
+                                            }
+                                        },
+                                        notification: {
+                                            poll: pollAsyncJobResult
+                                        }
+                                    },
+                                    disableOutOfBandManagement: {
+                                        label: 'label.outofbandmanagement.disable',
+                                        action: function (args) {
+                                            var data = {
+                                                zoneid: args.context.physicalResources[0].id
+                                            };
+                                            $.ajax({
+                                                url: createURL("disableOutOfBandManagementForZone"),
+                                                data: data,
+                                                success: function (json) {
+                                                    var jid = json.disableoutofbandmanagementforzoneresponse.jobid;
+                                                    args.response.success({
+                                                        _custom: {
+                                                            jobId: jid,
+                                                            getActionFilter: function () {
+                                                                return zoneActionfilter;
+                                                            }
+                                                        }
+                                                    });
+                                                },
+                                                error: function (json) {
+                                                    args.response.error(parseXMLHttpResponse(json));
+                                                }
+
+                                            });
+                                        },
+                                        messages: {
+                                            confirm: function (args) {
+                                                return 'message.outofbandmanagement.disable';
+                                            },
+                                            notification: function (args) {
+                                                return 'message.outofbandmanagement.disable';
+                                            }
+                                        },
+                                        notification: {
+                                            poll: pollAsyncJobResult
                                         }
                                     }
                                 },
@@ -8991,8 +9134,17 @@
                                         url: createURL('listHosts'),
                                         data: data,
                                         success: function (json) {
+                                            var items = json.listhostsresponse.host;
+                                            if (items) {
+                                                $.each(items, function(idx, host) {
+                                                    if (host && host.outofbandmanagement) {
+                                                        items[idx].powerstate = host.outofbandmanagement.powerstate;
+                                                    }
+                                                });
+                                            }
+
                                             args.response.success({
-                                                data: json.listhostsresponse.host
+                                                data: items
                                             });
                                         },
                                         error: function (json) {
@@ -10032,6 +10184,14 @@
                                                 }
                                             });
 
+                                            if ('routers' in args.context && args.context.routers[0].vpcid != undefined) {
+                                                hiddenFields.push('guestnetworkid');
+                                                hiddenFields.push('guestnetworkname');
+                                            } else if ('routers' in args.context && args.context.routers[0].guestnetworkid != undefined) {
+                                                hiddenFields.push('vpcid');
+                                                hiddenFields.push('vpcname');
+                                            }
+
                                             return hiddenFields;
                                         },
                                         fields:[ {
@@ -10061,6 +10221,15 @@
                                             },
                                             guestnetworkid: {
                                                 label: 'label.network.id'
+                                            },
+                                            guestnetworkname: {
+                                                label: 'label.network.name'
+                                            },
+                                            vpcid: {
+                                                label: 'label.vpc.id'
+                                            },
+                                            vpcname: {
+                                                label: 'label.vpc'
                                             },
                                             publicip: {
                                                 label: 'label.public.ip'
@@ -12458,6 +12627,9 @@
                         },
                         l3gatewayserviceuuid: {
                             label: 'label.nicira.l3gatewayserviceuuid'
+                        },
+						l2gatewayserviceuuid: {
+                            label: 'label.nicira.l2gatewayserviceuuid'
                         }
                     },
                     actions: {
@@ -12488,7 +12660,10 @@
                                     },
                                     l3gatewayserviceuuid: {
                                         label: 'label.nicira.l3gatewayserviceuuid'
-                                    }
+                                    },
+									l2gatewayserviceuuid: {
+										label: 'label.nicira.l2gatewayserviceuuid'
+									}
                                 }
                             },
                             action: function (args) {
@@ -12606,7 +12781,10 @@
                                     },
                                     l3gatewayserviceuuid: {
                                         label: 'label.nicira.l3gatewayserviceuuid'
-                                    }
+                                    },
+									l2gatewayserviceuuid: {
+										label: 'label.nicira.l2gatewayserviceuuid'
+									}
                                 }],
                                 dataProvider: function (args) {
                                     $.ajax({
@@ -13007,7 +13185,7 @@
                                     },
                                     apiversion: {
                                         label: 'label.api.version',
-                                        defaultValue: 'v1_0'
+                                        defaultValue: 'v3_2'
                                     },
                                     retrycount: {
                                         label: 'label.numretries',
@@ -13078,7 +13256,7 @@
                             dataType: "json",
                             async: false,
                             success: function(json) {
-                                var items = json.listnuagevspdeviceresponse.nuagevspdevice;
+                                var items = json.listnuagevspdevicesresponse.nuagevspdevice;
                                 args.response.success({
                                     data: items
                                 });
@@ -13147,7 +13325,7 @@
                                         dataType: "json",
                                         async: true,
                                         success: function(json) {
-                                            var item = json.listnuagevspdeviceresponse.nuagevspdevice[0];
+                                            var item = json.listnuagevspdevicesresponse.nuagevspdevice[0];
                                             args.response.success({
                                                 data: item
                                             });
@@ -14877,7 +15055,85 @@
                                         args.complete();
                                     }
                                 }
+                            },
+
+                            enableOutOfBandManagement: {
+                                label: 'label.outofbandmanagement.enable',
+                                action: function (args) {
+                                    var data = {
+                                        clusterid: args.context.clusters[0].id,
+                                    };
+                                    $.ajax({
+                                        url: createURL("enableOutOfBandManagementForCluster"),
+                                        data: data,
+                                        success: function (json) {
+                                            var jid = json.enableoutofbandmanagementforclusterresponse.jobid;
+                                            args.response.success({
+                                                _custom: {
+                                                    jobId: jid,
+                                                    getActionFilter: function () {
+                                                        return clusterActionfilter;
+                                                    }
+                                                }
+                                            });
+                                        },
+                                        error: function (json) {
+                                            args.response.error(parseXMLHttpResponse(json));
+                                        }
+                                    });
+                                },
+                                messages: {
+                                    confirm: function (args) {
+                                        return 'message.outofbandmanagement.enable';
+                                    },
+                                    notification: function (args) {
+                                        return 'message.outofbandmanagement.enable';
+                                    }
+                                },
+                                notification: {
+                                    poll: pollAsyncJobResult
+                                }
+                            },
+
+                            disableOutOfBandManagement: {
+                                label: 'label.outofbandmanagement.disable',
+                                action: function (args) {
+                                    var data = {
+                                        clusterid: args.context.clusters[0].id,
+                                    };
+                                    $.ajax({
+                                        url: createURL("disableOutOfBandManagementForCluster"),
+                                        data: data,
+                                        success: function (json) {
+                                            var jid = json.disableoutofbandmanagementforclusterresponse.jobid;
+                                            args.response.success({
+                                                _custom: {
+                                                    jobId: jid,
+                                                    getActionFilter: function () {
+                                                        return clusterActionfilter;
+                                                    }
+                                                }
+                                            });
+                                        },
+                                        error: function (json) {
+                                            args.response.error(parseXMLHttpResponse(json));
+                                        }
+
+                                    });
+                                },
+                                messages: {
+                                    confirm: function (args) {
+                                        return 'message.outofbandmanagement.disable';
+                                    },
+                                    notification: function (args) {
+                                        return 'message.outofbandmanagement.disable';
+                                    }
+                                },
+                                notification: {
+                                    poll: pollAsyncJobResult
+                                }
                             }
+
                         },
 
                         tabs: {
@@ -15235,7 +15491,15 @@
                                 'Alert': 'off',
                                 'Error': 'off'
                             }
-                        }
+                        },
+                        powerstate: {
+                            label: 'label.powerstate',
+                            indicator: {
+                                'On': 'on',
+                                'Off': 'off',
+                                'Unknown': 'warning'
+                            },
+                        },
                     },
 
                     dataProvider: function (args) {
@@ -15262,13 +15526,20 @@
                             //Instances menu > Instance detailView > View Hosts
                             array1.push("&id=" + args.context.instances[0].hostid);
                         }
-
                         $.ajax({
                             url: createURL("listHosts&type=Routing" + array1.join("") + "&page=" + args.page + "&pagesize=" + pageSize),
                             dataType: "json",
                             async: true,
                             success: function (json) {
                                 var items = json.listhostsresponse.host;
+                                if (items) {
+                                    $.each(items, function(idx, host) {
+                                        if (host && host.outofbandmanagement) {
+                                            items[idx].powerstate = host.outofbandmanagement.powerstate;
+                                        }
+                                    });
+                                }
+
                                 args.response.success({
                                     actionFilter: hostActionfilter,
                                     data: items
@@ -15905,6 +16176,7 @@
                                 }
                             },
 
+
                             dedicate: {
                                 label: 'label.dedicate.host',
                                 messages: {
@@ -16243,8 +16515,11 @@
                                                 }
                                             });
 
-                                            if (args.context.hosts[0].hypervisor == "XenServer"){
-                                                cloudStack.dialog.notice({ message: _s("The host has been deleted. Please eject the host from XenServer Pool") })
+                                            if (args.context.hosts[0].hypervisor == "XenServer") {
+                                                cloudStack.dialog.notice({ message: _s("The host has been removed. Please eject the host from the XenServer Resource Pool.") })
+                                            }
+                                            else if (args.context.hosts[0].hypervisor == "VMware") {
+                                                cloudStack.dialog.notice({ message: _s("The host has been removed. Please eject the host from the vSphere Cluster.") })
                                             }
                                         }
                                     });
@@ -16254,12 +16529,341 @@
                                         args.complete();
                                     }
                                 }
+                            },
+
+                            blankOutOfBandManagement: {
+                                label: '',
+                                action: function (args) {
+                                }
+                            },
+
+                            configureOutOfBandManagement: {
+                                label: 'label.outofbandmanagement.configure',
+                                messages: {
+                                    confirm: function (args) {
+                                        return 'message.outofbandmanagement.configure';
+                                    },
+                                    notification: function (args) {
+                                        return 'message.outofbandmanagement.configure';
+                                    }
+                                },
+                                createForm: {
+                                    title: 'label.outofbandmanagement.configure',
+                                    fields: {
+                                        address: {
+                                            label: 'label.outofbandmanagement.address',
+                                            validation: {
+                                                required: true
+                                            }
+                                        },
+                                        port: {
+                                            label: 'label.outofbandmanagement.port',
+                                            validation: {
+                                                required: true
+                                            }
+                                        },
+                                        username: {
+                                            label: 'label.outofbandmanagement.username',
+                                            validation: {
+                                                required: false
+                                            }
+                                        },
+                                        password: {
+                                            label: 'label.outofbandmanagement.password',
+                                            isPassword: true,
+                                            validation: {
+                                                required: false
+                                            },
+                                        },
+                                        driver: {
+                                            label: 'label.outofbandmanagement.driver',
+                                            validation: {
+                                                required: true
+                                            },
+                                            select: function (args) {
+                                                var oobm = args.context.hosts[0].outofbandmanagement;
+                                                if (oobm) {
+                                                    args.$form.find('input[name=address]').val(oobm.address);
+                                                    args.$form.find('input[name=port]').val(oobm.port);
+                                                    args.$form.find('input[name=username]').val(oobm.username);
+
+                                                    args.$form.find('input[name=address]').change(function() {
+                                                        $this.find('input[name=address]').val(oobm.address);
+                                                    });
+                                                }
+
+                                                var items = [];
+                                                items.push({
+                                                    id: 'ipmitool',
+                                                    description: 'ipmitool - ipmitool based shell driver'
+                                                });
+                                                args.response.success({
+                                                    data: items
+                                                });
+                                            }
+                                        }
+                                    }
+                                },
+                                action: function (args) {
+                                    var data = args.data;
+                                    data.hostid = args.context.hosts[0].id;
+
+                                    $.ajax({
+                                        url: createURL('configureOutOfBandManagement'),
+                                        data: data,
+                                        dataType: 'json',
+                                        success: function (json) {
+                                            var response = json.configureoutofbandmanagementresponse;
+                                            args.response.success({
+                                                actionFilter: hostActionfilter,
+                                                data: response
+                                            });
+                                        },
+                                        error: function (json) {
+                                            args.response.error(parseXMLHttpResponse(json));
+                                        }
+                                    });
+                                },
+                                notification: {
+                                    poll: function (args) {
+                                        args.complete();
+                                    }
+                                }
+                            },
+
+                            enableOutOfBandManagement: {
+                                label: 'label.outofbandmanagement.enable',
+                                action: function (args) {
+                                    var data = {
+                                        hostid: args.context.hosts[0].id,
+                                    };
+                                    $.ajax({
+                                        url: createURL("enableOutOfBandManagementForHost"),
+                                        data: data,
+                                        success: function (json) {
+                                            var jid = json.enableoutofbandmanagementforhostresponse.jobid;
+                                            args.response.success({
+                                                _custom: {
+                                                    jobId: jid,
+                                                    getActionFilter: function () {
+                                                        return hostActionfilter;
+                                                    }
+                                                }
+                                            });
+                                        },
+                                        error: function (json) {
+                                            args.response.error(parseXMLHttpResponse(json));
+                                        }
+
+                                    });
+                                },
+                                messages: {
+                                    confirm: function (args) {
+                                        return 'message.outofbandmanagement.enable';
+                                    },
+                                    notification: function (args) {
+                                        return 'message.outofbandmanagement.enable';
+                                    }
+                                },
+                                notification: {
+                                    poll: pollAsyncJobResult
+                                }
+                            },
+
+                            disableOutOfBandManagement: {
+                                label: 'label.outofbandmanagement.disable',
+                                action: function (args) {
+                                    var data = {
+                                        hostid: args.context.hosts[0].id,
+                                    };
+                                    $.ajax({
+                                        url: createURL("disableOutOfBandManagementForHost"),
+                                        data: data,
+                                        success: function (json) {
+                                            var jid = json.disableoutofbandmanagementforhostresponse.jobid;
+                                            args.response.success({
+                                                _custom: {
+                                                    jobId: jid,
+                                                    getActionFilter: function () {
+                                                        return hostActionfilter;
+                                                    }
+                                                }
+                                            });
+                                        },
+                                        error: function (json) {
+                                            args.response.error(parseXMLHttpResponse(json));
+                                        }
+
+                                    });
+                                },
+                                messages: {
+                                    confirm: function (args) {
+                                        return 'message.outofbandmanagement.disable';
+                                    },
+                                    notification: function (args) {
+                                        return 'message.outofbandmanagement.disable';
+                                    }
+                                },
+                                notification: {
+                                    poll: pollAsyncJobResult
+                                }
+                            },
+
+                            issueOutOfBandManagementPowerAction: {
+                                label: 'label.outofbandmanagement.action.issue',
+                                messages: {
+                                    confirm: function (args) {
+                                        return 'message.outofbandmanagement.issue';
+                                    },
+                                    notification: function (args) {
+                                        return 'message.outofbandmanagement.issue';
+                                    }
+                                },
+                                createForm: {
+                                    title: 'label.outofbandmanagement.action.issue',
+                                    desc: function(args) {
+                                          var host = args.context.hosts[0];
+                                          if (host.resourcestate == 'Maintenance' || host.resourcestate == 'PrepareForMaintenance' || host.resourcestate == 'ErrorInMaintenance') {
+                                              return _l('message.outofbandmanagement.action.maintenance');
+                                          }
+                                    },
+                                    fields: {
+                                        action: {
+                                            label: 'label.outofbandmanagement.action',
+                                            validation: {
+                                                required: true
+                                            },
+                                            select: function (args) {
+                                                var items = [];
+                                                items.push({
+                                                    id: 'ON',
+                                                    description: 'ON - turn on host'
+                                                });
+                                                items.push({
+                                                    id: 'OFF',
+                                                    description: 'OFF - turn off host'
+                                                });
+                                                items.push({
+                                                    id: 'CYCLE',
+                                                    description: 'CYCLE - power cycle the host'
+                                                });
+                                                items.push({
+                                                    id: 'RESET',
+                                                    description: 'RESET - power reset the host'
+                                                });
+                                                items.push({
+                                                    id: 'SOFT',
+                                                    description: 'SOFT - soft shutdown the host using ACPI etc'
+                                                });
+                                                items.push({
+                                                    id: 'STATUS',
+                                                    description: 'STATUS - update power status of the host'
+                                                });
+                                                args.response.success({
+                                                    data: items
+                                                });
+                                            }
+                                        },
+                                    }
+                                },
+                                action: function (args) {
+                                    var data = args.data;
+                                    data.hostid = args.context.hosts[0].id;
+                                    $.ajax({
+                                        url: createURL('issueOutOfBandManagementPowerAction'),
+                                        data: data,
+                                        dataType: 'json',
+                                        success: function (json) {
+                                            var jid = json.issueoutofbandmanagementpoweractionresponse.jobid;
+                                            args.response.success({
+                                                _custom: {
+                                                    jobId: jid,
+                                                    getActionFilter: function () {
+                                                        return hostActionfilter;
+                                                    }
+                                                }
+                                            });
+                                        },
+                                        error: function (json) {
+                                            args.response.error(parseXMLHttpResponse(json));
+                                        }
+                                    });
+                                },
+                                notification: {
+                                    poll: pollAsyncJobResult
+                                }
+                            },
+
+                            changeOutOfBandManagementPassword: {
+                                label: 'label.outofbandmanagement.changepassword',
+                                messages: {
+                                    confirm: function (args) {
+                                        return 'message.outofbandmanagement.changepassword';
+                                    },
+                                    notification: function (args) {
+                                        return 'message.outofbandmanagement.changepassword';
+                                    }
+                                },
+                                createForm: {
+                                    title: 'label.outofbandmanagement.changepassword',
+                                    fields: {
+                                        password: {
+                                            label: 'label.outofbandmanagement.password',
+                                            isPassword: true,
+                                            validation: {
+                                                required: false
+                                            },
+                                        },
+                                        reenterpassword: {
+                                            label: 'label.outofbandmanagement.reenterpassword',
+                                            isPassword: true,
+                                            validation: {
+                                                required: false
+                                            }
+                                        },
+                                    }
+                                },
+                                action: function (args) {
+                                    var data = args.data;
+                                    if (data.password != data.reenterpassword) {
+                                        args.response.error("Passwords do not match");
+                                        return;
+                                    }
+                                    data.hostid = args.context.hosts[0].id;
+                                    $.ajax({
+                                        url: createURL('changeOutOfBandManagementPassword'),
+                                        data: data,
+                                        dataType: 'json',
+                                        success: function (json) {
+                                            var jid = json.changeoutofbandmanagementpasswordresponse.jobid;
+                                            args.response.success({
+                                                _custom: {
+                                                    jobId: jid,
+                                                    getActionFilter: function () {
+                                                        return hostActionfilter;
+                                                    }
+                                                }
+                                            });
+                                        },
+                                        error: function (json) {
+                                            args.response.error(parseXMLHttpResponse(json));
+                                        }
+                                    });
+                                },
+                                notification: {
+                                    poll: pollAsyncJobResult
+                                }
                             }
+
                         },
                         tabFilter: function (args) {
                             var hiddenTabs =[];
-                            if (args.context.hosts[0].gpugroup == null) {
+                            var host = args.context.hosts[0];
+                            if (host.gpugroup == null) {
                                 hiddenTabs.push("gpu");
+                            }
+                            if (host.outofbandmanagement == null || !host.outofbandmanagement.enabled) {
+                                hiddenTabs.push("outofbandmanagement");
                             }
                             return hiddenTabs;
                         },
@@ -16296,6 +16900,9 @@
                                     },
                                     state: {
                                         label: 'label.state'
+                                    },
+                                    powerstate: {
+                                        label: 'label.powerstate'
                                     },
                                     type: {
                                         label: 'label.type'
@@ -16408,6 +17015,10 @@
                                         async: true,
                                         success: function (json) {
                                             var item = json.listhostsresponse.host[0];
+                                            if (item && item.outofbandmanagement) {
+                                                item.powerstate = item.outofbandmanagement.powerstate;
+                                            }
+
                                             $.ajax({
                                                 url: createURL("listDedicatedHosts&hostid=" + args.context.hosts[0].id),
                                                 dataType: "json",
@@ -16433,6 +17044,44 @@
                                             args.response.success({
                                                 actionFilter: hostActionfilter,
                                                 data: item
+                                            });
+                                        }
+                                    });
+                                }
+                            },
+
+                            outofbandmanagement: {
+                                title: 'label.outofbandmanagement',
+                                fields: {
+                                    powerstate: {
+                                        label: 'label.powerstate'
+                                    },
+                                    driver: {
+                                        label: 'label.outofbandmanagement.driver'
+                                    },
+                                    username: {
+                                        label: 'label.outofbandmanagement.username'
+                                    },
+                                    address: {
+                                        label: 'label.outofbandmanagement.address'
+                                    },
+                                    port: {
+                                        label: 'label.outofbandmanagement.port'
+                                    }
+                                },
+                                dataProvider: function (args) {
+                                    $.ajax({
+                                        url: createURL("listHosts&id=" + args.context.hosts[0].id),
+                                        dataType: "json",
+                                        async: true,
+                                        success: function (json) {
+                                            var host = json.listhostsresponse.host[0];
+                                            var oobm = {};
+                                            if (host && host.outofbandmanagement) {
+                                                oobm = host.outofbandmanagement;
+                                            }
+                                            args.response.success({
+                                                data: oobm
                                             });
                                         }
                                     });
@@ -20243,6 +20892,11 @@
         if (l3GatewayServiceUuid != null && l3GatewayServiceUuid.length > 0) {
             array1.push("&l3gatewayserviceuuid=" + todb(args.data.l3gatewayserviceuuid));
         }
+		
+		var l2GatewayServiceUuid = args.data.l2gatewayserviceuuid;
+        if (l2GatewayServiceUuid != null && l2GatewayServiceUuid.length > 0) {
+            array1.push("&l2gatewayserviceuuid=" + todb(args.data.l2gatewayserviceuuid));
+        }
 
         $.ajax({
             url: createURL(apiCmd + array1.join("")),
@@ -20709,6 +21363,13 @@
         allowedActions.push("disable");
 
         allowedActions.push("remove");
+
+        if (jsonObj.hasOwnProperty('resourcedetails') && jsonObj['resourcedetails'].hasOwnProperty('outOfBandManagementEnabled') && jsonObj['resourcedetails']['outOfBandManagementEnabled'] == 'false') {
+            allowedActions.push("enableOutOfBandManagement");
+        } else {
+            allowedActions.push("disableOutOfBandManagement");
+        }
+
         return allowedActions;
     }
 
@@ -20794,6 +21455,12 @@
 
         allowedActions.push("remove");
 
+        if (jsonObj.hasOwnProperty('resourcedetails') && jsonObj['resourcedetails'].hasOwnProperty('outOfBandManagementEnabled') && jsonObj['resourcedetails']['outOfBandManagementEnabled'] == 'false') {
+            allowedActions.push("enableOutOfBandManagement");
+        } else {
+            allowedActions.push("disableOutOfBandManagement");
+        }
+
         return allowedActions;
     }
 
@@ -20828,6 +21495,16 @@
             allowedActions.push("edit");
             allowedActions.push("enable");
             allowedActions.push("remove");
+        }
+
+        allowedActions.push("blankOutOfBandManagement");
+        allowedActions.push("configureOutOfBandManagement");
+        if (jsonObj.hasOwnProperty("outofbandmanagement") && jsonObj.outofbandmanagement.enabled) {
+            allowedActions.push("issueOutOfBandManagementPowerAction");
+            allowedActions.push("changeOutOfBandManagementPassword");
+            allowedActions.push("disableOutOfBandManagement");
+        } else {
+            allowedActions.push("enableOutOfBandManagement");
         }
 
         if ((jsonObj.state == "Down" || jsonObj.state == "Alert" || jsonObj.state == "Disconnected") && ($.inArray("remove", allowedActions) == -1)) {

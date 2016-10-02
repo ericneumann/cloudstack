@@ -25,7 +25,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
@@ -90,7 +89,6 @@ import com.cloud.vm.dao.DomainRouterDao;
 import com.cloud.vm.dao.NicDao;
 
 @Component
-@Local(value = {ExternalDeviceUsageManager.class})
 public class ExternalDeviceUsageManagerImpl extends ManagerBase implements ExternalDeviceUsageManager {
 
     String _name;
@@ -342,6 +340,15 @@ public class ExternalDeviceUsageManagerImpl extends ManagerBase implements Exter
 
         @Override
         protected void runInContext() {
+
+            // Check if there are any external devices
+            // Skip external device usage collection if none exist
+
+            if(_hostDao.listByType(Host.Type.ExternalFirewall).isEmpty() && _hostDao.listByType(Host.Type.ExternalLoadBalancer).isEmpty()){
+                s_logger.debug("External devices are not used. Skipping external device usage collection");
+                return;
+            }
+
             GlobalLock scanLock = GlobalLock.getInternLock("ExternalDeviceNetworkUsageManagerImpl");
             try {
                 if (scanLock.lock(20)) {
@@ -358,7 +365,7 @@ public class ExternalDeviceUsageManagerImpl extends ManagerBase implements Exter
             }
         }
 
-        private void runExternalDeviceNetworkUsageTask() {
+        protected void runExternalDeviceNetworkUsageTask() {
             s_logger.debug("External devices stats collector is running...");
 
             for (DataCenterVO zone : _dcDao.listAll()) {

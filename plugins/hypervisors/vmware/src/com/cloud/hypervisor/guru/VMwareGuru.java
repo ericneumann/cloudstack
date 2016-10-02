@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStore;
@@ -68,6 +67,7 @@ import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.HypervisorGuru;
 import com.cloud.hypervisor.HypervisorGuruBase;
 import com.cloud.hypervisor.vmware.manager.VmwareManager;
+import com.cloud.hypervisor.vmware.mo.DiskControllerType;
 import com.cloud.hypervisor.vmware.mo.VirtualEthernetCardType;
 import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
@@ -105,7 +105,6 @@ import com.cloud.vm.VmDetailConstants;
 import com.cloud.vm.dao.NicDao;
 import com.cloud.vm.dao.VMInstanceDao;
 
-@Local(value = HypervisorGuru.class)
 public class VMwareGuru extends HypervisorGuruBase implements HypervisorGuru, Configurable {
     private static final Logger s_logger = Logger.getLogger(VMwareGuru.class);
 
@@ -201,10 +200,16 @@ public class VMwareGuru extends HypervisorGuruBase implements HypervisorGuru, Co
             }
         }
 
-        String diskDeviceType = details.get(VmDetailConstants.ROOK_DISK_CONTROLLER);
+        String diskDeviceType = details.get(VmDetailConstants.ROOT_DISK_CONTROLLER);
         if (userVm) {
             if (diskDeviceType == null) {
-                details.put(VmDetailConstants.ROOK_DISK_CONTROLLER, _vmwareMgr.getRootDiskController());
+                details.put(VmDetailConstants.ROOT_DISK_CONTROLLER, _vmwareMgr.getRootDiskController());
+            }
+        }
+        String diskController = details.get(VmDetailConstants.DATA_DISK_CONTROLLER);
+        if (userVm) {
+            if (diskController == null) {
+                details.put(VmDetailConstants.DATA_DISK_CONTROLLER, DiskControllerType.lsilogic.toString());
             }
         }
 

@@ -51,7 +51,7 @@ public class CreateVpnCustomerGatewayCmd extends BaseAsyncCmd {
     @Parameter(name = ApiConstants.CIDR_LIST, type = CommandType.STRING, required = true, description = "guest cidr list of the customer gateway")
     private String peerCidrList;
 
-    @Parameter(name = ApiConstants.IPSEC_PSK, type = CommandType.STRING, required = true, description = "IPsec Preshared-Key of the customer gateway")
+    @Parameter(name = ApiConstants.IPSEC_PSK, type = CommandType.STRING, required = true, description = "IPsec Preshared-Key of the customer gateway. Cannot contain newline or double quotes.")
     private String ipsecPsk;
 
     @Parameter(name = ApiConstants.IKE_POLICY, type = CommandType.STRING, required = true, description = "IKE policy of the customer gateway")
@@ -74,6 +74,9 @@ public class CreateVpnCustomerGatewayCmd extends BaseAsyncCmd {
 
     @Parameter(name = ApiConstants.DPD, type = CommandType.BOOLEAN, required = false, description = "If DPD is enabled for VPN connection")
     private Boolean dpd;
+
+    @Parameter(name = ApiConstants.FORCE_ENCAP, type = CommandType.BOOLEAN, required = false, description = "Force Encapsulation for NAT traversal")
+    private Boolean encap;
 
     @Parameter(name = ApiConstants.ACCOUNT, type = CommandType.STRING, description = "the account associated with the gateway. Must be used with the domainId parameter.")
     private String accountName;
@@ -128,6 +131,8 @@ public class CreateVpnCustomerGatewayCmd extends BaseAsyncCmd {
     public Boolean getDpd() {
         return dpd;
     }
+
+    public Boolean getEncap() { return encap; }
 
     public String getAccountName() {
         return accountName;

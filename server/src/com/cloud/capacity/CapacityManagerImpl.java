@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
@@ -101,7 +100,6 @@ import com.cloud.vm.dao.UserVmDetailsDao;
 import com.cloud.vm.dao.VMInstanceDao;
 import com.cloud.vm.snapshot.dao.VMSnapshotDao;
 
-@Local(value = CapacityManager.class)
 public class CapacityManagerImpl extends ManagerBase implements CapacityManager, StateListener<State, VirtualMachine.Event, VirtualMachine>, Listener, ResourceListener,
         Configurable {
     private static final Logger s_logger = Logger.getLogger(CapacityManagerImpl.class);
@@ -551,26 +549,33 @@ public class CapacityManagerImpl extends ManagerBase implements CapacityManager,
             return getUsedBytes(pool);
         }
         else {
-            // Get size for all the non-destroyed volumes
+            // Get size for all the non-destroyed volumes.
             Pair<Long, Long> sizes = _volumeDao.getNonDestroyedCountAndTotalByPool(pool.getId());
 
             totalAllocatedSize = sizes.second() + sizes.first() * _extraBytesPerVolume;
         }
 
-        // Get size for VM Snapshots
-        totalAllocatedSize = totalAllocatedSize + _volumeDao.getVMSnapshotSizeByPool(pool.getId());
+        // Get size for VM Snapshots.
+        totalAllocatedSize += _volumeDao.getVMSnapshotSizeByPool(pool.getId());
 
-        // Iterate through all templates on this storage pool
-        boolean tmpinstalled = false;
-        List<VMTemplateStoragePoolVO> templatePoolVOs;
-        templatePoolVOs = _templatePoolDao.listByPoolId(pool.getId());
+        boolean tmpInstalled = false;
+        // Iterate through all templates on this storage pool.
+        List<VMTemplateStoragePoolVO> templatePoolVOs = _templatePoolDao.listByPoolId(pool.getId());
 
         for (VMTemplateStoragePoolVO templatePoolVO : templatePoolVOs) {
-            if ((templateForVmCreation != null) && !tmpinstalled && (templatePoolVO.getTemplateId() == templateForVmCreation.getId())) {
-                tmpinstalled = true;
+            if ((templateForVmCreation != null) && !tmpInstalled && (templatePoolVO.getTemplateId() == templateForVmCreation.getId())) {
+                tmpInstalled = true;
             }
+
             long templateSize = templatePoolVO.getTemplateSize();
+
             totalAllocatedSize += templateSize + _extraBytesPerVolume;
+        }
+
+        if ((templateForVmCreation != null) && !tmpInstalled) {
+            long templateForVmCreationSize = templateForVmCreation.getSize() != null ? templateForVmCreation.getSize() : 0;
+
+            totalAllocatedSize += templateForVmCreationSize + _extraBytesPerVolume;
         }
 
         return totalAllocatedSize;
@@ -984,6 +989,10 @@ public class CapacityManagerImpl extends ManagerBase implements CapacityManager,
     }
 
     @Override
+    public void processHostAdded(long hostId) {
+    }
+
+    @Override
     public void processConnect(Host host, StartupCommand cmd, boolean forRebalance) throws ConnectionException {
         // TODO Auto-generated method stub
 
@@ -993,6 +1002,14 @@ public class CapacityManagerImpl extends ManagerBase implements CapacityManager,
     public boolean processDisconnect(long agentId, Status state) {
         // TODO Auto-generated method stub
         return false;
+    }
+
+    @Override
+    public void processHostAboutToBeRemoved(long hostId) {
+    }
+
+    @Override
+    public void processHostRemoved(long hostId, long clusterId) {
     }
 
     @Override
@@ -1084,6 +1101,6 @@ public class CapacityManagerImpl extends ManagerBase implements CapacityManager,
     @Override
     public ConfigKey<?>[] getConfigKeys() {
         return new ConfigKey<?>[] {CpuOverprovisioningFactor, MemOverprovisioningFactor, StorageCapacityDisableThreshold, StorageOverprovisioningFactor,
-            StorageAllocatedCapacityDisableThreshold};
+            StorageAllocatedCapacityDisableThreshold, StorageOperationsExcludeCluster, VmwareCreateCloneFull};
     }
 }

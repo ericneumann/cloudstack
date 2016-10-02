@@ -80,10 +80,7 @@
                                 fields: {
                                     name: {
                                         docID: 'helpVolumeName',
-                                        label: 'label.name',
-                                        validation: {
-                                            required: true
-                                        }
+                                        label: 'label.name'
                                     },
                                     availabilityZone: {
                                         label: 'label.availability.zone',
@@ -1550,14 +1547,29 @@
                                 },
                                 createForm: {
                                     title: 'label.action.resize.volume',
+                                    preFilter: function(args) {
+                                        if (args.context.volumes != null && args.context.volumes[0].type == 'ROOT') {
+                                            args.$form.find('.form-item[rel=newdiskoffering]').hide();
+
+                                            selectedDiskOfferingObj = null;
+                                        } else {
+                                            args.$form.find('.form-item[rel=newsize]').hide();
+                                        }
+                                    },
                                     fields: {
                                         newdiskoffering: {
                                             label: 'label.resize.new.offering.id',
                                             select: function(args) {
+                                                if (args.context.volumes != null && args.context.volumes[0].type == 'ROOT') {
+                                                    args.response.success({
+                                                        data: []
+                                                    });
+                                                    return;
+                                                }
+
                                                 $.ajax({
                                                     url: createURL("listDiskOfferings"),
                                                     dataType: "json",
-                                                    async: false,
                                                     success: function(json) {
                                                         diskofferingObjs = json.listdiskofferingsresponse.diskoffering;
                                                         var items = [];
@@ -1619,8 +1631,7 @@
                                             validation: {
                                                 required: true,
                                                 number: true
-                                            },
-                                            isHidden: true
+                                            }
                                         },
                                         shrinkok: {
                                             label: 'label.resize.shrink.ok',
@@ -1654,7 +1665,7 @@
 
                                     var newDiskOffering = args.data.newdiskoffering;
                                     var newSize;
-                                    if (selectedDiskOfferingObj.iscustomized == true) {
+                                    if (selectedDiskOfferingObj == null || selectedDiskOfferingObj.iscustomized == true) {
                                         newSize = args.data.newsize;
                                     }
                                     if (newDiskOffering != null && newDiskOffering.length > 0) {
@@ -1665,9 +1676,9 @@
                                     }
 
                                     var minIops;
-                                    var maxIops
+                                    var maxIops;
 
-                                    if (selectedDiskOfferingObj.iscustomizediops == true) {
+                                    if (selectedDiskOfferingObj != null && selectedDiskOfferingObj.iscustomizediops == true) {
                                         minIops = args.data.minIops;
                                         maxIops = args.data.maxIops;
                                     }
@@ -2352,11 +2363,12 @@
                 allowedActions.push("takeSnapshot");
                 allowedActions.push("recurringSnapshot");
             }
-
-            if (jsonObj.type == "DATADISK") {
-                allowedActions.push("resize");
-            }
         }
+
+        if (jsonObj.state == "Ready" || jsonObj.state == "Allocated") {
+            allowedActions.push("resize");
+        }
+
         if (jsonObj.state != "Allocated") {
             if ((jsonObj.vmstate == "Stopped" || jsonObj.virtualmachineid == null) && jsonObj.state == "Ready") {
                 allowedActions.push("downloadVolume");

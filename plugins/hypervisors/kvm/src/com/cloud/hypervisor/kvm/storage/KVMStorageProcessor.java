@@ -18,8 +18,7 @@
  */
 package com.cloud.hypervisor.kvm.storage;
 
-import static com.cloud.utils.S3Utils.mputFile;
-import static com.cloud.utils.S3Utils.putFile;
+import static com.cloud.utils.storage.S3.S3Utils.putFile;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -48,6 +47,8 @@ import org.apache.cloudstack.storage.command.DettachAnswer;
 import org.apache.cloudstack.storage.command.DettachCommand;
 import org.apache.cloudstack.storage.command.ForgetObjectCmd;
 import org.apache.cloudstack.storage.command.IntroduceObjectCmd;
+import org.apache.cloudstack.storage.command.ResignatureAnswer;
+import org.apache.cloudstack.storage.command.ResignatureCommand;
 import org.apache.cloudstack.storage.command.SnapshotAndCopyAnswer;
 import org.apache.cloudstack.storage.command.SnapshotAndCopyCommand;
 import org.apache.cloudstack.storage.to.PrimaryDataStoreTO;
@@ -68,7 +69,10 @@ import org.libvirt.LibvirtException;
 
 import com.ceph.rados.IoCTX;
 import com.ceph.rados.Rados;
+import com.ceph.rados.exceptions.ErrorCode;
+import com.ceph.rados.exceptions.RadosException;
 import com.ceph.rbd.Rbd;
+import com.ceph.rbd.RbdException;
 import com.ceph.rbd.RbdImage;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.storage.PrimaryStorageDownloadAnswer;
@@ -95,7 +99,7 @@ import com.cloud.storage.template.Processor.FormatInfo;
 import com.cloud.storage.template.QCOW2Processor;
 import com.cloud.storage.template.TemplateLocation;
 import com.cloud.utils.NumbersUtil;
-import com.cloud.utils.S3Utils;
+import com.cloud.utils.storage.S3.S3Utils;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.script.Script;
 
@@ -146,6 +150,13 @@ public class KVMStorageProcessor implements StorageProcessor {
         s_logger.info("'SnapshotAndCopyAnswer snapshotAndCopy(SnapshotAndCopyCommand)' not currently used for KVMStorageProcessor");
 
         return new SnapshotAndCopyAnswer();
+    }
+
+    @Override
+    public ResignatureAnswer resignature(final ResignatureCommand cmd) {
+        s_logger.info("'ResignatureAnswer resignature(ResignatureCommand)' not currently used for KVMStorageProcessor");
+
+        return new ResignatureAnswer();
     }
 
     @Override
@@ -594,15 +605,10 @@ public class KVMStorageProcessor implements StorageProcessor {
     }
 
     protected String copyToS3(final File srcFile, final S3TO destStore, final String destPath) throws InterruptedException {
-        final String bucket = destStore.getBucketName();
-
-        final long srcSize = srcFile.length();
         final String key = destPath + S3Utils.SEPARATOR + srcFile.getName();
-        if (!destStore.getSingleUpload(srcSize)) {
-            mputFile(destStore, srcFile, bucket, key);
-        } else {
-            putFile(destStore, srcFile, bucket, key);
-        }
+
+        putFile(destStore, srcFile, destStore.getBucketName(), key).waitForCompletion();
+
         return key;
     }
 
@@ -668,7 +674,7 @@ public class KVMStorageProcessor implements StorageProcessor {
         final SnapshotObjectTO snapshotOnCacheStore = (SnapshotObjectTO)answer.getNewData();
         snapshotOnCacheStore.setDataStore(cacheStore);
         ((SnapshotObjectTO)destData).setDataStore(imageStore);
-        final CopyCommand newCpyCmd = new CopyCommand(snapshotOnCacheStore, destData, cmd.getWaitInMillSeconds(), cmd.executeInSequence());
+        final CopyCommand newCpyCmd = new   CopyCommand(snapshotOnCacheStore, destData, cmd.getWaitInMillSeconds(), cmd.executeInSequence());
         return copyToObjectStore(newCpyCmd);
     }
 
@@ -731,10 +737,10 @@ public class KVMStorageProcessor implements StorageProcessor {
                     final QemuImgFile srcFile =
                             new QemuImgFile(KVMPhysicalDisk.RBDStringBuilder(primaryPool.getSourceHost(), primaryPool.getSourcePort(), primaryPool.getAuthUserName(),
                                     primaryPool.getAuthSecret(), rbdSnapshot));
-                    srcFile.setFormat(PhysicalDiskFormat.RAW);
+                    srcFile.setFormat(snapshotDisk.getFormat());
 
                     final QemuImgFile destFile = new QemuImgFile(snapshotFile);
-                    destFile.setFormat(snapshotDisk.getFormat());
+                    destFile.setFormat(PhysicalDiskFormat.QCOW2);
 
                     s_logger.debug("Backing up RBD snapshot " + rbdSnapshot + " to " + snapshotFile);
                     final QemuImg q = new QemuImg(cmd.getWaitInMillSeconds());
@@ -950,8 +956,8 @@ public class KVMStorageProcessor implements StorageProcessor {
         return null;
     }
 
-    protected synchronized String attachOrDetachDisk(final Connect conn, final boolean attach, final String vmName, final KVMPhysicalDisk attachingDisk, final int devId) throws LibvirtException,
-    InternalErrorException {
+    protected synchronized String attachOrDetachDisk(final Connect conn, final boolean attach, final String vmName, final KVMPhysicalDisk attachingDisk, final int devId, final String serial,
+            final Long bytesReadRate, final Long bytesWriteRate, final Long iopsReadRate, final Long iopsWriteRate) throws LibvirtException, InternalErrorException {
         List<DiskDef> disks = null;
         Domain dm = null;
         DiskDef diskdef = null;
@@ -986,6 +992,7 @@ public class KVMStorageProcessor implements StorageProcessor {
                 }
             } else {
                 diskdef = new DiskDef();
+                diskdef.setSerial(serial);
                 if (attachingPool.getType() == StoragePoolType.RBD) {
                     if(resource.getHypervisorType() == Hypervisor.HypervisorType.LXC){
                         // For LXC, map image to host and then attach to Vm
@@ -1011,6 +1018,19 @@ public class KVMStorageProcessor implements StorageProcessor {
                 } else if (attachingDisk.getFormat() == PhysicalDiskFormat.RAW) {
                     diskdef.defBlockBasedDisk(attachingDisk.getPath(), devId, DiskDef.DiskBus.VIRTIO);
                 }
+
+                if ((bytesReadRate != null) && (bytesReadRate > 0)) {
+                    diskdef.setBytesReadRate(bytesReadRate);
+                }
+                if ((bytesWriteRate != null) && (bytesWriteRate > 0)) {
+                    diskdef.setBytesWriteRate(bytesWriteRate);
+                }
+                if ((iopsReadRate != null) && (iopsReadRate > 0)) {
+                    diskdef.setIopsReadRate(iopsReadRate);
+                }
+                if ((iopsWriteRate != null) && (iopsWriteRate > 0)) {
+                    diskdef.setIopsWriteRate(iopsWriteRate);
+                }
             }
 
             final String xml = diskdef.toString();
@@ -1028,6 +1048,7 @@ public class KVMStorageProcessor implements StorageProcessor {
         final VolumeObjectTO vol = (VolumeObjectTO)disk.getData();
         final PrimaryDataStoreTO primaryStore = (PrimaryDataStoreTO)vol.getDataStore();
         final String vmName = cmd.getVmName();
+        final String serial = resource.diskUuidToSerial(vol.getUuid());
         try {
             final Connect conn = LibvirtConnection.getConnectionByVmName(vmName);
 
@@ -1035,7 +1056,7 @@ public class KVMStorageProcessor implements StorageProcessor {
 
             final KVMPhysicalDisk phyDisk = storagePoolMgr.getPhysicalDisk(primaryStore.getPoolType(), primaryStore.getUuid(), vol.getPath());
 
-            attachOrDetachDisk(conn, true, vmName, phyDisk, disk.getDiskSeq().intValue());
+            attachOrDetachDisk(conn, true, vmName, phyDisk, disk.getDiskSeq().intValue(), serial, vol.getBytesReadRate(), vol.getBytesWriteRate(), vol.getIopsReadRate(), vol.getIopsWriteRate());
 
             return new AttachAnswer(disk);
         } catch (final LibvirtException e) {
@@ -1054,12 +1075,13 @@ public class KVMStorageProcessor implements StorageProcessor {
         final VolumeObjectTO vol = (VolumeObjectTO)disk.getData();
         final PrimaryDataStoreTO primaryStore = (PrimaryDataStoreTO)vol.getDataStore();
         final String vmName = cmd.getVmName();
+        final String serial = resource.diskUuidToSerial(vol.getUuid());
         try {
             final Connect conn = LibvirtConnection.getConnectionByVmName(vmName);
 
             final KVMPhysicalDisk phyDisk = storagePoolMgr.getPhysicalDisk(primaryStore.getPoolType(), primaryStore.getUuid(), vol.getPath());
 
-            attachOrDetachDisk(conn, false, vmName, phyDisk, disk.getDiskSeq().intValue());
+            attachOrDetachDisk(conn, false, vmName, phyDisk, disk.getDiskSeq().intValue(), serial, vol.getBytesReadRate(), vol.getBytesWriteRate(), vol.getIopsReadRate(), vol.getIopsWriteRate());
 
             storagePoolMgr.disconnectPhysicalDisk(primaryStore.getPoolType(), primaryStore.getUuid(), vol.getPath());
 
@@ -1277,7 +1299,59 @@ public class KVMStorageProcessor implements StorageProcessor {
 
     @Override
     public Answer deleteSnapshot(final DeleteCommand cmd) {
-        return new Answer(cmd);
+        String snap_full_name = "";
+        try {
+            SnapshotObjectTO snapshotTO = (SnapshotObjectTO) cmd.getData();
+            PrimaryDataStoreTO primaryStore = (PrimaryDataStoreTO) snapshotTO.getDataStore();
+            VolumeObjectTO volume = snapshotTO.getVolume();
+            KVMStoragePool primaryPool = storagePoolMgr.getStoragePool(primaryStore.getPoolType(), primaryStore.getUuid());
+            KVMPhysicalDisk disk = storagePoolMgr.getPhysicalDisk(primaryStore.getPoolType(), primaryStore.getUuid(), volume.getPath());
+            String snapshotFullPath = snapshotTO.getPath();
+            String snapshotName = snapshotFullPath.substring(snapshotFullPath.lastIndexOf("/") + 1);
+            snap_full_name = disk.getName() + "@" + snapshotName;
+            if (primaryPool.getType() == StoragePoolType.RBD) {
+                Rados r = new Rados(primaryPool.getAuthUserName());
+                r.confSet("mon_host", primaryPool.getSourceHost() + ":" + primaryPool.getSourcePort());
+                r.confSet("key", primaryPool.getAuthSecret());
+                r.confSet("client_mount_timeout", "30");
+                r.connect();
+                s_logger.debug("Succesfully connected to Ceph cluster at " + r.confGet("mon_host"));
+                IoCTX io = r.ioCtxCreate(primaryPool.getSourceDir());
+                Rbd rbd = new Rbd(io);
+                RbdImage image = rbd.open(disk.getName());
+                try {
+                    s_logger.info("Attempting to remove RBD snapshot " + snap_full_name);
+                    if (image.snapIsProtected(snapshotName)) {
+                        s_logger.debug("Unprotecting RBD snapshot " + snap_full_name);
+                        image.snapUnprotect(snapshotName);
+                    }
+                    image.snapRemove(snapshotName);
+                    s_logger.info("Snapshot " + snap_full_name + " successfully removed from " +
+                            primaryPool.getType().toString() + "  pool.");
+                } catch (RbdException e) {
+                    s_logger.error("Failed to remove snapshot " + snap_full_name + ", with exception: " + e.toString() +
+                        ", RBD error: " + ErrorCode.getErrorMessage(e.getReturnValue()));
+                } finally {
+                    rbd.close(image);
+                    r.ioCtxDestroy(io);
+                }
+            } else {
+                s_logger.warn("Operation not implemented for storage pool type of " + primaryPool.getType().toString());
+                throw new InternalErrorException("Operation not implemented for storage pool type of " + primaryPool.getType().toString());
+            }
+            return new Answer(cmd, true, "Snapshot " + snap_full_name + " removed successfully.");
+        } catch (RadosException e) {
+            s_logger.error("Failed to remove snapshot " + snap_full_name + ", with exception: " + e.toString() +
+                ", RBD error: " + ErrorCode.getErrorMessage(e.getReturnValue()));
+            return new Answer(cmd, false, "Failed to remove snapshot " + snap_full_name);
+        } catch (RbdException e) {
+            s_logger.error("Failed to remove snapshot " + snap_full_name + ", with exception: " + e.toString() +
+                ", RBD error: " + ErrorCode.getErrorMessage(e.getReturnValue()));
+            return new Answer(cmd, false, "Failed to remove snapshot " + snap_full_name);
+        } catch (Exception e) {
+            s_logger.error("Failed to remove snapshot " + snap_full_name + ", with exception: " + e.toString());
+            return new Answer(cmd, false, "Failed to remove snapshot " + snap_full_name);
+        }
     }
 
     @Override

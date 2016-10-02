@@ -35,7 +35,6 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
@@ -169,7 +168,6 @@ import com.cloud.vm.snapshot.VMSnapshotManager;
 import com.cloud.vm.snapshot.VMSnapshotVO;
 import com.cloud.vm.snapshot.dao.VMSnapshotDao;
 
-@Local(value = {AccountManager.class, AccountService.class})
 public class AccountManagerImpl extends ManagerBase implements AccountManager, Manager {
     public static final Logger s_logger = Logger.getLogger(AccountManagerImpl.class);
 
@@ -788,7 +786,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
             try {
                 for (RemoteAccessVpnVO vpn : remoteAccessVpns) {
-                    _remoteAccessVpnMgr.destroyRemoteAccessVpnForIp(vpn.getServerAddressId(), caller);
+                    _remoteAccessVpnMgr.destroyRemoteAccessVpnForIp(vpn.getServerAddressId(), caller, false);
                 }
             } catch (ResourceUnavailableException ex) {
                 s_logger.warn("Failed to cleanup remote access vpn resources as a part of account id=" + accountId + " cleanup due to Exception: ", ex);
@@ -996,9 +994,9 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
         @ActionEvent(eventType = EventTypes.EVENT_USER_CREATE, eventDescription = "creating User")
     })
     public UserAccount createUserAccount(final String userName, final String password, final String firstName, final String lastName, final String email, final String timezone,
-            String accountName, final short accountType, Long domainId, final String networkDomain, final Map<String, String> details, String accountUUID, final String userUUID) {
+            String accountName, final short accountType, final Long roleId, Long domainId, final String networkDomain, final Map<String, String> details, String accountUUID, final String userUUID) {
 
-        return createUserAccount(userName, password, firstName, lastName, email, timezone, accountName, accountType, domainId, networkDomain, details, accountUUID, userUUID,
+        return createUserAccount(userName, password, firstName, lastName, email, timezone, accountName, accountType, roleId, domainId, networkDomain, details, accountUUID, userUUID,
                 User.Source.UNKNOWN);
     }
 
@@ -1013,7 +1011,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
         @ActionEvent(eventType = EventTypes.EVENT_USER_CREATE, eventDescription = "creating User")
     })
     public UserAccount createUserAccount(final String userName, final String password, final String firstName, final String lastName, final String email,
-        final String timezone, String accountName, final short accountType, Long domainId, final String networkDomain, final Map<String, String> details,
+        final String timezone, String accountName, final short accountType, final Long roleId, Long domainId, final String networkDomain, final Map<String, String> details,
         String accountUUID, final String userUUID, final User.Source source) {
 
         if (accountName == null) {
@@ -1067,7 +1065,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
                 if (accountUUID == null) {
                     accountUUID = UUID.randomUUID().toString();
                 }
-                AccountVO account = createAccount(accountNameFinal, accountType, domainIdFinal, networkDomain, details, accountUUID);
+                AccountVO account = createAccount(accountNameFinal, accountType, roleId, domainIdFinal, networkDomain, details, accountUUID);
                 long accountId = account.getId();
 
                 // create the first user for the account
@@ -1871,27 +1869,10 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public RoleType getRoleType(Account account) {
-        RoleType roleType = RoleType.Unknown;
-        if (account == null)
-            return roleType;
-        short accountType = account.getType();
-
-        // Account type to role type translation
-        switch (accountType) {
-            case Account.ACCOUNT_TYPE_ADMIN:
-                roleType = RoleType.Admin;
-                break;
-            case Account.ACCOUNT_TYPE_DOMAIN_ADMIN:
-                roleType = RoleType.DomainAdmin;
-                break;
-            case Account.ACCOUNT_TYPE_RESOURCE_DOMAIN_ADMIN:
-                roleType = RoleType.ResourceAdmin;
-                break;
-            case Account.ACCOUNT_TYPE_NORMAL:
-                roleType = RoleType.User;
-                break;
+        if (account == null) {
+            return RoleType.Unknown;
         }
-        return roleType;
+        return RoleType.getByAccountType(account.getType());
     }
 
     @Override
@@ -1918,7 +1899,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     @DB
-    public AccountVO createAccount(final String accountName, final short accountType, final Long domainId, final String networkDomain, final Map<String, String> details,
+    public AccountVO createAccount(final String accountName, final short accountType, final Long roleId, final Long domainId, final String networkDomain, final Map<String, String> details,
         final String uuid) {
         // Validate domain
         Domain domain = _domainMgr.getDomain(domainId);
@@ -1931,7 +1912,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
         }
 
         if ((domainId != Domain.ROOT_DOMAIN) && (accountType == Account.ACCOUNT_TYPE_ADMIN)) {
-            throw new InvalidParameterValueException("Invalid account type " + accountType + " given for an account in domain " + domainId + "; unable to create user.");
+            throw new InvalidParameterValueException("Invalid account type " + accountType + " given for an account in domain " + domainId + "; unable to create user of admin role type in non-ROOT domain.");
         }
 
         // Validate account/user/domain settings
@@ -1963,7 +1944,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
         return Transaction.execute(new TransactionCallback<AccountVO>() {
             @Override
             public AccountVO doInTransaction(TransactionStatus status) {
-        AccountVO account = _accountDao.persist(new AccountVO(accountName, domainId, networkDomain, accountType, uuid));
+        AccountVO account = _accountDao.persist(new AccountVO(accountName, domainId, networkDomain, accountType, roleId, uuid));
 
         if (account == null) {
             throw new CloudRuntimeException("Failed to create account name " + accountName + " in domain id=" + domainId);
@@ -2186,8 +2167,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
                 if (s_logger.isInfoEnabled()) {
                     s_logger.info("User " + username + " in domain " + domainName + " is disabled/locked (or account is disabled/locked)");
                 }
-                throw new CloudAuthenticationException("User " + username + " in domain " + domainName + " is disabled/locked (or account is disabled/locked)");
-                // return null;
+                throw new CloudAuthenticationException("User " + username + " (or their account) in domain " + domainName + " is disabled/locked. Please contact the administrator.");
             }
             // Whenever the user is able to log in successfully, reset the login attempts to zero
             if (!isInternalAccount(userAccount.getId()))
@@ -2406,98 +2386,10 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
         }
     }
 
-//    @Override
-//    public void buildACLSearchParameters(Account caller, Long id, String accountName, Long projectId, List<Long>
-//    permittedAccounts, Ternary<Long, Boolean, ListProjectResourcesCriteria> domainIdRecursiveListProject,
-//            boolean listAll, boolean forProjectInvitation) {
-//        Long domainId = domainIdRecursiveListProject.first();
-//        if (domainId != null) {
-//            Domain domain = _domainDao.findById(domainId);
-//            if (domain == null) {
-//                throw new InvalidParameterValueException("Unable to find domain by id " + domainId);
-//            }
-//            // check permissions
-//            checkAccess(caller, domain);
-//        }
-//
-//        if (accountName != null) {
-//            if (projectId != null) {
-//                throw new InvalidParameterValueException("Account and projectId can't be specified together");
-//            }
-//
-//            Account userAccount = null;
-//            Domain domain = null;
-//            if (domainId != null) {
-//                userAccount = _accountDao.findActiveAccount(accountName, domainId);
-//                domain = _domainDao.findById(domainId);
-//            } else {
-//                userAccount = _accountDao.findActiveAccount(accountName, caller.getDomainId());
-//                domain = _domainDao.findById(caller.getDomainId());
-//            }
-//
-//            if (userAccount != null) {
-//                checkAccess(caller, null, false, userAccount);
-//                //check permissions
-//                permittedAccounts.add(userAccount.getId());
-//            } else {
-//                throw new InvalidParameterValueException("could not find account " + accountName + " in domain " + domain.getUuid());
-//            }
-//        }
-//
-//        // set project information
-//        if (projectId != null) {
-//            if (!forProjectInvitation) {
-//                if (projectId.longValue() == -1) {
-//                    if (caller.getType() == Account.ACCOUNT_TYPE_NORMAL) {
-//                        permittedAccounts.addAll(_projectMgr.listPermittedProjectAccounts(caller.getId()));
-//                    } else {
-//                        domainIdRecursiveListProject.third(Project.ListProjectResourcesCriteria.ListProjectResourcesOnly);
-//                    }
-//                } else {
-//                    Project project = _projectMgr.getProject(projectId);
-//                    if (project == null) {
-//                        throw new InvalidParameterValueException("Unable to find project by id " + projectId);
-//                    }
-//                    if (!_projectMgr.canAccessProjectAccount(caller, project.getProjectAccountId())) {
-//                        throw new PermissionDeniedException("Account " + caller + " can't access project id=" + projectId);
-//                    }
-//                    permittedAccounts.add(project.getProjectAccountId());
-//                }
-//            }
-//        } else {
-//            if (id == null) {
-//                domainIdRecursiveListProject.third(Project.ListProjectResourcesCriteria.SkipProjectResources);
-//            }
-//            if (permittedAccounts.isEmpty() && domainId == null) {
-//                if (caller.getType() == Account.ACCOUNT_TYPE_NORMAL) {
-//                    permittedAccounts.add(caller.getId());
-//                } else if (!listAll) {
-//                    if (id == null) {
-//                        permittedAccounts.add(caller.getId());
-//                    } else if (!isRootAdmin(caller.getId())) {
-//                        domainIdRecursiveListProject.first(caller.getDomainId());
-//                        domainIdRecursiveListProject.second(true);
-//                    }
-//                } else if (domainId == null) {
-//                    if (caller.getType() == Account.ACCOUNT_TYPE_DOMAIN_ADMIN) {
-//                        domainIdRecursiveListProject.first(caller.getDomainId());
-//                        domainIdRecursiveListProject.second(true);
-//                    }
-//                }
-//            } else if (domainId != null) {
-//                if (caller.getType() == Account.ACCOUNT_TYPE_NORMAL) {
-//                    permittedAccounts.add(caller.getId());
-//                }
-//            }
-//
-//        }
-//    }
-
     //TODO: deprecate this to use the new buildACLSearchParameters with permittedDomains, permittedAccounts, and permittedResources as return
     @Override
-    public void buildACLSearchParameters(Account caller, Long id, String accountName, Long projectId, List<Long>
-    permittedAccounts, Ternary<Long, Boolean, ListProjectResourcesCriteria> domainIdRecursiveListProject,
-            boolean listAll, boolean forProjectInvitation) {
+    public void buildACLSearchParameters(Account caller, Long id, String accountName, Long projectId, List<Long> permittedAccounts,
+            Ternary<Long, Boolean, ListProjectResourcesCriteria> domainIdRecursiveListProject, boolean listAll, boolean forProjectInvitation) {
         Long domainId = domainIdRecursiveListProject.first();
         if (domainId != null) {
             Domain domain = _domainDao.findById(domainId);

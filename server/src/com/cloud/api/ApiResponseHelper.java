@@ -191,6 +191,7 @@ import com.cloud.configuration.Resource.ResourceOwnerType;
 import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.configuration.ResourceCount;
 import com.cloud.configuration.ResourceLimit;
+import com.cloud.dc.ClusterDetailsDao;
 import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.HostPodVO;
@@ -342,6 +343,8 @@ public class ApiResponseHelper implements ResponseGenerator {
     private SnapshotDataStoreDao _snapshotStoreDao;
     @Inject
     private PrimaryDataStoreDao _storagePoolDao;
+    @Inject
+    private ClusterDetailsDao _clusterDetailsDao;
 
     @Override
     public UserResponse createUserResponse(User user) {
@@ -666,6 +669,21 @@ public class ApiResponseHelper implements ResponseGenerator {
         if (owner != null) {
             populateAccount(vlanResponse, owner.getId());
             populateDomain(vlanResponse, owner.getDomainId());
+        } else {
+            Domain domain = ApiDBUtils.getVlanDomain(vlan.getId());
+            if (domain != null) {
+                populateDomain(vlanResponse, domain.getId());
+            } else {
+                Long networkId = vlan.getNetworkId();
+                if (networkId != null) {
+                    Network network = _ntwkModel.getNetwork(networkId);
+                    if (network != null) {
+                        Long accountId = network.getAccountId();
+                        populateAccount(vlanResponse, accountId);
+                        populateDomain(vlanResponse, ApiDBUtils.findAccountById(accountId).getDomainId());
+                    }
+                }
+            }
         }
 
         if (vlan.getPhysicalNetworkId() != null) {
@@ -1038,6 +1056,7 @@ public class ApiResponseHelper implements ResponseGenerator {
         String memoryOvercommitRatio = ApiDBUtils.findClusterDetails(cluster.getId(), "memoryOvercommitRatio");
         clusterResponse.setCpuOvercommitRatio(cpuOvercommitRatio);
         clusterResponse.setMemoryOvercommitRatio(memoryOvercommitRatio);
+        clusterResponse.setResourceDetails(_clusterDetailsDao.findDetails(cluster.getId()));
 
         if (showCapacities != null && showCapacities) {
             List<SummedCapacity> capacities = ApiDBUtils.getCapacityByClusterPodZone(null, null, cluster.getId());
@@ -1373,7 +1392,7 @@ public class ApiResponseHelper implements ResponseGenerator {
     @Override
     public List<TemplateResponse> createTemplateResponses(ResponseView view, VirtualMachineTemplate result, Long zoneId, boolean readyOnly) {
         List<TemplateJoinVO> tvo = null;
-        if (zoneId == null || zoneId == -1) {
+        if (zoneId == null || zoneId == -1 || result.isCrossZones()) {
             tvo = ApiDBUtils.newTemplateView(result);
         } else {
             tvo = ApiDBUtils.newTemplateView(result, zoneId, readyOnly);
@@ -1576,7 +1595,7 @@ public class ApiResponseHelper implements ResponseGenerator {
                 if (vgpuVMs.containsKey(capacity.getGroupName().concat(capacity.getModelName()))) {
                     capacityUsed += (float)vgpuVMs.get(capacity.getGroupName().concat(capacity.getModelName())) / capacity.getMaxVpuPerGpu();
                 }
-                if (capacity.getModelName().equals(GPU.vGPUType.passthrough.toString())) {
+                if (capacity.getModelName().equals(GPU.GPUType.passthrough.toString())) {
                     capacityMax += capacity.getMaxCapacity();
                 }
             }
@@ -2986,7 +3005,7 @@ public class ApiResponseHelper implements ResponseGenerator {
         response.setIkeLifetime(result.getIkeLifetime());
         response.setEspLifetime(result.getEspLifetime());
         response.setDpd(result.getDpd());
-
+        response.setEncap(result.getEncap());
         response.setRemoved(result.getRemoved());
         response.setObjectName("vpncustomergateway");
 
@@ -3026,6 +3045,7 @@ public class ApiResponseHelper implements ResponseGenerator {
                 response.setIkeLifetime(customerGateway.getIkeLifetime());
                 response.setEspLifetime(customerGateway.getEspLifetime());
                 response.setDpd(customerGateway.getDpd());
+                response.setEncap(customerGateway.getEncap());
             }
         }
 
@@ -3452,6 +3472,15 @@ public class ApiResponseHelper implements ResponseGenerator {
         response.setDeviceId(String.valueOf(result.getDeviceId()));
 
         response.setIsDefault(result.isDefaultNic());
+
+        if (result instanceof NicVO){
+            if (((NicVO)result).getNsxLogicalSwitchUuid() != null){
+                response.setNsxLogicalSwitch(((NicVO)result).getNsxLogicalSwitchUuid());
+            }
+            if (((NicVO)result).getNsxLogicalSwitchPortUuid() != null){
+                response.setNsxLogicalSwitchPort(((NicVO)result).getNsxLogicalSwitchPortUuid());
+            }
+        }
         return response;
     }
 

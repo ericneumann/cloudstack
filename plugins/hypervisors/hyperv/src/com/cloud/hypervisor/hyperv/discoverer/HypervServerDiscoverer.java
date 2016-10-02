@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
@@ -72,7 +71,6 @@ import com.cloud.storage.StorageLayer;
  * HypervDirectConnectResource corresponding to the agent on a Hyper-V
  * hypervisor and manages its lifecycle.
  */
-@Local(value = Discoverer.class)
 public class HypervServerDiscoverer extends DiscovererBase implements Discoverer, Listener, ResourceStateAdapter {
     private static final Logger s_logger = Logger.getLogger(HypervServerDiscoverer.class);
     Random _rand = new Random(System.currentTimeMillis());
@@ -106,6 +104,10 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     @Override
     public final AgentControlAnswer processControlCommand(final long agentId, final AgentControlCommand cmd) {
         return null;
+    }
+
+    @Override
+    public void processHostAdded(long hostId) {
     }
 
     @Override
@@ -176,6 +178,14 @@ public class HypervServerDiscoverer extends DiscovererBase implements Discoverer
     @Override
     public final boolean processDisconnect(final long agentId, final Status state) {
         return false;
+    }
+
+    @Override
+    public void processHostAboutToBeRemoved(long hostId) {
+    }
+
+    @Override
+    public void processHostRemoved(long hostId, long clusterId) {
     }
 
     @Override

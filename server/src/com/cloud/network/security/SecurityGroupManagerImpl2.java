@@ -24,7 +24,6 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
@@ -48,7 +47,6 @@ import com.cloud.vm.VirtualMachine.State;
  * Same as the base class -- except it uses the abstracted security group work queue
  *
  */
-@Local(value = {SecurityGroupManager.class, SecurityGroupService.class})
 public class SecurityGroupManagerImpl2 extends SecurityGroupManagerImpl {
     SecurityGroupWorkQueue _workQueue = new LocalSecurityGroupWorkQueue();
     SecurityGroupWorkTracker _workTracker;
@@ -184,8 +182,6 @@ public class SecurityGroupManagerImpl2 extends SecurityGroupManagerImpl {
                 List<String> nicSecIps = null;
                 if (nic != null) {
                     if (nic.getSecondaryIp()) {
-                        //get secondary ips of the vm
-                        long networkId = nic.getNetworkId();
                         nicSecIps = _nicSecIpDao.getSecondaryIpAddressesForNic(nic.getId());
                     }
                 }
@@ -195,7 +191,7 @@ public class SecurityGroupManagerImpl2 extends SecurityGroupManagerImpl {
                 cmd.setMsId(_serverId);
                 if (s_logger.isDebugEnabled()) {
                     s_logger.debug("SecurityGroupManager v2: sending ruleset update for vm " + vm.getInstanceName() + ":ingress num rules=" +
-                        cmd.getIngressRuleSet().length + ":egress num rules=" + cmd.getEgressRuleSet().length + " num cidrs=" + cmd.getTotalNumCidrs() + " sig=" +
+                        cmd.getIngressRuleSet().size() + ":egress num rules=" + cmd.getEgressRuleSet().size() + " num cidrs=" + cmd.getTotalNumCidrs() + " sig=" +
                         cmd.getSignature());
                 }
                 Commands cmds = new Commands(cmd);

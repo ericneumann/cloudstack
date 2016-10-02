@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 
 import com.cloud.configuration.Config;
@@ -86,7 +85,6 @@ import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.exception.CloudRuntimeException;
 
-@Local(value = TemplateAdapter.class)
 public class HypervisorTemplateAdapter extends TemplateAdapterBase {
     private final static Logger s_logger = Logger.getLogger(HypervisorTemplateAdapter.class);
     @Inject
@@ -396,7 +394,7 @@ public class HypervisorTemplateAdapter extends TemplateAdapterBase {
                 // publish zone-wide usage event
                 Long sZoneId = ((ImageStoreEntity)imageStore).getDataCenterId();
                 if (sZoneId != null) {
-                    UsageEventUtils.publishUsageEvent(eventType, template.getAccountId(), sZoneId, template.getId(), null, null, null);
+                    UsageEventUtils.publishUsageEvent(eventType, template.getAccountId(), sZoneId, template.getId(), null, VirtualMachineTemplate.class.getName(), template.getUuid());
                 }
 
                 s_logger.info("Delete template from image store: " + imageStore.getName());

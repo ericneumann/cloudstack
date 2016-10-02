@@ -22,7 +22,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
@@ -77,7 +76,6 @@ import com.cloud.utils.fsm.StateMachine2;
  * Monitors the progress of upload.
  */
 @Component
-@Local(value = {ImageStoreUploadMonitor.class})
 public class ImageStoreUploadMonitorImpl extends ManagerBase implements ImageStoreUploadMonitor, Listener, Configurable {
 
     static final Logger s_logger = Logger.getLogger(ImageStoreUploadMonitorImpl.class);
@@ -117,7 +115,7 @@ public class ImageStoreUploadMonitorImpl extends ManagerBase implements ImageSto
     public boolean configure(String name, Map<String, Object> params) throws ConfigurationException {
         _executor = Executors.newScheduledThreadPool(1, new NamedThreadFactory("Upload-Monitor"));
         _monitoringInterval = UploadMonitoringInterval.value();
-        _uploadOperationTimeout = UploadOperationTimeout.value() * 60 * 1000;
+        _uploadOperationTimeout = UploadOperationTimeout.value() * 60 * 1000L;
         _nodeId = ManagementServerNode.getManagementServerId();
         return true;
     }
@@ -155,6 +153,14 @@ public class ImageStoreUploadMonitorImpl extends ManagerBase implements ImageSto
     }
 
     @Override
+    public void processHostAboutToBeRemoved(long hostId) {
+    }
+
+    @Override
+    public void processHostRemoved(long hostId, long clusterId) {
+    }
+
+    @Override
     public boolean isRecurring() {
         return false;
     }
@@ -167,6 +173,10 @@ public class ImageStoreUploadMonitorImpl extends ManagerBase implements ImageSto
     @Override
     public boolean processTimeout(long agentId, long seq) {
         return false;
+    }
+
+    @Override
+    public void processHostAdded(long hostId) {
     }
 
     @Override

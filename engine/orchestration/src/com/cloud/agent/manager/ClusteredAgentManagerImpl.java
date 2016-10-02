@@ -37,7 +37,6 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 import javax.net.ssl.SSLContext;
@@ -52,7 +51,6 @@ import org.apache.cloudstack.utils.identity.ManagementServerNode;
 import org.apache.cloudstack.utils.security.SSLUtils;
 import org.apache.log4j.Logger;
 
-import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.CancelCommand;
 import com.cloud.agent.api.ChangeAgentAnswer;
@@ -95,7 +93,6 @@ import com.cloud.utils.nio.Link;
 import com.cloud.utils.nio.Task;
 import com.google.gson.Gson;
 
-@Local(value = {AgentManager.class, ClusteredAgentRebalanceService.class})
 public class ClusteredAgentManagerImpl extends AgentManagerImpl implements ClusterManagerListener, ClusteredAgentRebalanceService {
     final static Logger s_logger = Logger.getLogger(ClusteredAgentManagerImpl.class);
     private static final ScheduledExecutorService s_transferExecutor = Executors.newScheduledThreadPool(2, new NamedThreadFactory("Cluster-AgentRebalancingExecutor"));
@@ -502,7 +499,7 @@ public class ClusteredAgentManagerImpl extends AgentManagerImpl implements Clust
                 SocketChannel ch1 = null;
                 try {
                     ch1 = SocketChannel.open(new InetSocketAddress(addr, Port.value()));
-                    ch1.configureBlocking(true); // make sure we are working at blocking mode
+                    ch1.configureBlocking(false);
                     ch1.socket().setKeepAlive(true);
                     ch1.socket().setSoTimeout(60 * 1000);
                     try {
@@ -510,8 +507,11 @@ public class ClusteredAgentManagerImpl extends AgentManagerImpl implements Clust
                         sslEngine = sslContext.createSSLEngine(ip, Port.value());
                         sslEngine.setUseClientMode(true);
                         sslEngine.setEnabledProtocols(SSLUtils.getSupportedProtocols(sslEngine.getEnabledProtocols()));
-
-                        Link.doHandshake(ch1, sslEngine, true);
+                        sslEngine.beginHandshake();
+                        if (!Link.doHandshake(ch1, sslEngine, true)) {
+                            ch1.close();
+                            throw new IOException("SSL handshake failed!");
+                        }
                         s_logger.info("SSL: Handshake done");
                     } catch (final Exception e) {
                         ch1.close();
@@ -736,6 +736,7 @@ public class ClusteredAgentManagerImpl extends AgentManagerImpl implements Clust
             s_logger.info("Marking hosts as disconnected on Management server" + vo.getMsid());
             final long lastPing = (System.currentTimeMillis() >> 10) - getTimeout();
             _hostDao.markHostsAsDisconnected(vo.getMsid(), lastPing);
+            outOfBandManagementDao.expireOutOfBandManagementOwnershipByServer(vo.getMsid());
             s_logger.info("Deleting entries from op_host_transfer table for Management server " + vo.getMsid());
             cleanupTransferMap(vo.getMsid());
         }
@@ -1414,14 +1415,12 @@ public class ClusteredAgentManagerImpl extends AgentManagerImpl implements Clust
                         final double managedHostsCount = allManagedRoutingAgents.size();
                         if (allHostsCount > 0.0) {
                             final double load = managedHostsCount / allHostsCount;
-                            if (load >= ConnectedAgentThreshold.value()) {
-                                s_logger.debug("Scheduling agent rebalancing task as the average agent load " + load + " is more than the threshold " +
-                                        ConnectedAgentThreshold.value());
+                            if (load > ConnectedAgentThreshold.value()) {
+                                s_logger.debug("Scheduling agent rebalancing task as the average agent load " + load + " is more than the threshold " + ConnectedAgentThreshold.value());
                                 scheduleRebalanceAgents();
                                 _agentLbHappened = true;
                             } else {
-                                s_logger.debug("Not scheduling agent rebalancing task as the averages load " + load + " is less than the threshold " +
-                                        ConnectedAgentThreshold.value());
+                                s_logger.debug("Not scheduling agent rebalancing task as the average load " + load + " has not crossed the threshold " + ConnectedAgentThreshold.value());
                             }
                         }
                     }

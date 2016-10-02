@@ -17,6 +17,8 @@
 
 package com.cloud.vm;
 
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Matchers.anyFloat;
@@ -33,15 +35,19 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.cloud.network.element.UserDataServiceProvider;
 import com.cloud.storage.Storage;
 import com.cloud.user.User;
 import com.cloud.event.dao.UsageEventDao;
+import com.cloud.uservm.UserVm;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.mockito.Spy;
 
@@ -51,7 +57,9 @@ import org.apache.cloudstack.api.ServerApiException;
 import org.apache.cloudstack.api.command.admin.vm.AssignVMCmd;
 import org.apache.cloudstack.api.command.user.vm.RestoreVMCmd;
 import org.apache.cloudstack.api.command.user.vm.ScaleVMCmd;
+import org.apache.cloudstack.api.command.user.vm.UpdateVmNicIpCmd;
 import org.apache.cloudstack.context.CallContext;
+import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;
 import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationService;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
@@ -60,6 +68,10 @@ import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreVO;
 
 import com.cloud.capacity.CapacityManager;
 import com.cloud.configuration.ConfigurationManager;
+import com.cloud.dc.DataCenterVO;
+import com.cloud.dc.DataCenter.NetworkType;
+import com.cloud.dc.dao.DataCenterDao;
+import com.cloud.deploy.DeployDestination;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
@@ -68,7 +80,17 @@ import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.network.IpAddressManager;
+import com.cloud.network.Network;
+import com.cloud.network.Network.GuestType;
+import com.cloud.network.Network.Service;
+import com.cloud.network.NetworkModel;
+import com.cloud.network.dao.IPAddressDao;
+import com.cloud.network.dao.NetworkDao;
+import com.cloud.network.dao.NetworkVO;
 import com.cloud.offering.ServiceOffering;
+import com.cloud.offerings.NetworkOfferingVO;
+import com.cloud.offerings.dao.NetworkOfferingDao;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.Storage.ImageFormat;
@@ -87,6 +109,8 @@ import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.UserDao;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.vm.VirtualMachine.State;
+import com.cloud.vm.dao.NicDao;
 import com.cloud.vm.dao.UserVmDao;
 import com.cloud.vm.dao.VMInstanceDao;
 import com.cloud.vm.snapshot.VMSnapshotVO;
@@ -161,6 +185,32 @@ public class UserVmManagerTest {
     UsageEventDao _usageEventDao;
     @Mock
     VMSnapshotDao _vmSnapshotDao;
+    @Mock
+    UpdateVmNicIpCmd _updateVmNicIpCmd;
+    @Mock
+    NicDao _nicDao;
+    @Mock
+    NicVO _nicMock;
+    @Mock
+    NetworkModel _networkModel;
+    @Mock
+    NetworkDao _networkDao;
+    @Mock
+    NetworkVO _networkMock;
+    @Mock
+    DataCenterDao _dcDao;
+    @Mock
+    DataCenterVO _dcMock;
+    @Mock
+    IpAddressManager _ipAddrMgr;
+    @Mock
+    IPAddressDao _ipAddressDao;
+    @Mock
+    NetworkOfferingDao _networkOfferingDao;
+    @Mock
+    NetworkOfferingVO _networkOfferingMock;
+    @Mock
+    NetworkOrchestrationService _networkMgr;
 
     @Before
     public void setup() {
@@ -186,6 +236,14 @@ public class UserVmManagerTest {
         _userVmMgr._entityMgr = _entityMgr;
         _userVmMgr._storagePoolDao = _storagePoolDao;
         _userVmMgr._vmSnapshotDao = _vmSnapshotDao;
+        _userVmMgr._nicDao = _nicDao;
+        _userVmMgr._networkModel = _networkModel;
+        _userVmMgr._networkDao = _networkDao;
+        _userVmMgr._dcDao = _dcDao;
+        _userVmMgr._ipAddrMgr = _ipAddrMgr;
+        _userVmMgr._ipAddressDao = _ipAddressDao;
+        _userVmMgr._networkOfferingDao = _networkOfferingDao;
+        _userVmMgr._networkMgr = _networkMgr;
 
         doReturn(3L).when(_account).getId();
         doReturn(8L).when(_vmMock).getAccountId();
@@ -648,4 +706,299 @@ public class UserVmManagerTest {
         }
     }
 
+    @Test
+    public void testUpdateVmNicIpSuccess1() throws Exception {
+        UpdateVmNicIpCmd cmd = new UpdateVmNicIpCmd();
+        Class<?> _class = cmd.getClass();
+
+        Field virtualmachineIdField = _class.getDeclaredField("nicId");
+        virtualmachineIdField.setAccessible(true);
+        virtualmachineIdField.set(cmd, 1L);
+
+        Field accountNameField = _class.getDeclaredField("ipAddr");
+        accountNameField.setAccessible(true);
+        accountNameField.set(cmd, "10.10.10.10");
+
+        NicVO nic = new NicVO("nic", 1L, 2L, VirtualMachine.Type.User);
+        when(_nicDao.findById(anyLong())).thenReturn(nic);
+        when(_vmDao.findById(anyLong())).thenReturn(_vmMock);
+        when(_networkDao.findById(anyLong())).thenReturn(_networkMock);
+        doReturn(9L).when(_networkMock).getNetworkOfferingId();
+        when(_networkOfferingDao.findByIdIncludingRemoved(anyLong())).thenReturn(_networkOfferingMock);
+        doReturn(10L).when(_networkOfferingMock).getId();
+
+        List<Service> services = new ArrayList<Service>();
+        services.add(Service.Dhcp);
+        when(_networkModel.listNetworkOfferingServices(anyLong())).thenReturn(services);
+        when(_vmMock.getState()).thenReturn(State.Stopped);
+        doNothing().when(_accountMgr).checkAccess(_account, null, true, _vmMock);
+        when(_accountDao.findByIdIncludingRemoved(anyLong())).thenReturn(_accountMock);
+
+        when(_networkMock.getState()).thenReturn(Network.State.Implemented);
+        when(_networkMock.getDataCenterId()).thenReturn(3L);
+        when(_networkMock.getGuestType()).thenReturn(GuestType.Isolated);
+        when(_dcDao.findById(anyLong())).thenReturn(_dcMock);
+        when(_dcMock.getNetworkType()).thenReturn(NetworkType.Advanced);
+
+        when(_ipAddrMgr.allocateGuestIP(Mockito.eq(_networkMock), anyString())).thenReturn("10.10.10.10");
+        doNothing().when(_networkMgr).implementNetworkElementsAndResources(Mockito.any(DeployDestination.class), Mockito.any(ReservationContext.class), Mockito.eq(_networkMock), Mockito.eq(_networkOfferingMock));
+        when(_nicDao.persist(any(NicVO.class))).thenReturn(nic);
+
+        Account caller = new AccountVO("testaccount", 1, "networkdomain", (short)0, UUID.randomUUID().toString());
+        UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);
+        CallContext.register(user, caller);
+        try {
+            _userVmMgr.updateNicIpForVirtualMachine(cmd);
+        } finally {
+            CallContext.unregister();
+        }
+    }
+
+    @Test
+    public void testUpdateVmNicIpSuccess2() throws Exception {
+        UpdateVmNicIpCmd cmd = new UpdateVmNicIpCmd();
+        Class<?> _class = cmd.getClass();
+
+        Field virtualmachineIdField = _class.getDeclaredField("nicId");
+        virtualmachineIdField.setAccessible(true);
+        virtualmachineIdField.set(cmd, 1L);
+
+        Field accountNameField = _class.getDeclaredField("ipAddr");
+        accountNameField.setAccessible(true);
+        accountNameField.set(cmd, "10.10.10.10");
+
+        NicVO nic = new NicVO("nic", 1L, 2L, VirtualMachine.Type.User);
+        when(_nicDao.findById(anyLong())).thenReturn(nic);
+        when(_vmDao.findById(anyLong())).thenReturn(_vmMock);
+        when(_networkDao.findById(anyLong())).thenReturn(_networkMock);
+        doReturn(9L).when(_networkMock).getNetworkOfferingId();
+        when(_networkOfferingDao.findByIdIncludingRemoved(anyLong())).thenReturn(_networkOfferingMock);
+        doReturn(10L).when(_networkOfferingMock).getId();
+
+        List<Service> services = new ArrayList<Service>();
+        when(_networkModel.listNetworkOfferingServices(anyLong())).thenReturn(services);
+        when(_vmMock.getState()).thenReturn(State.Running);
+        doNothing().when(_accountMgr).checkAccess(_account, null, true, _vmMock);
+        when(_accountDao.findByIdIncludingRemoved(anyLong())).thenReturn(_accountMock);
+
+        when(_networkMock.getState()).thenReturn(Network.State.Implemented);
+        when(_networkMock.getDataCenterId()).thenReturn(3L);
+        when(_networkMock.getGuestType()).thenReturn(GuestType.Shared);
+        when(_dcDao.findById(anyLong())).thenReturn(_dcMock);
+        when(_dcMock.getNetworkType()).thenReturn(NetworkType.Advanced);
+
+        when(_ipAddrMgr.allocatePublicIpForGuestNic(Mockito.eq(_networkMock), anyLong(), Mockito.eq(_accountMock), anyString())).thenReturn("10.10.10.10");
+        when(_ipAddressDao.findByIpAndSourceNetworkId(anyLong(), anyString())).thenReturn(null);
+        when(_nicDao.persist(any(NicVO.class))).thenReturn(nic);
+
+        Account caller = new AccountVO("testaccount", 1, "networkdomain", (short)0, UUID.randomUUID().toString());
+        UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);
+        CallContext.register(user, caller);
+        try {
+            _userVmMgr.updateNicIpForVirtualMachine(cmd);
+        } finally {
+            CallContext.unregister();
+        }
+    }
+
+    // vm is running in network with dhcp support
+    @Test(expected = InvalidParameterValueException.class)
+    public void testUpdateVmNicIpFailure1() throws Exception {
+        UpdateVmNicIpCmd cmd = new UpdateVmNicIpCmd();
+        Class<?> _class = cmd.getClass();
+
+        Field virtualmachineIdField = _class.getDeclaredField("nicId");
+        virtualmachineIdField.setAccessible(true);
+        virtualmachineIdField.set(cmd, 1L);
+
+        Field accountNameField = _class.getDeclaredField("ipAddr");
+        accountNameField.setAccessible(true);
+        accountNameField.set(cmd, "10.10.10.10");
+
+        NicVO nic = new NicVO("nic", 1L, 2L, VirtualMachine.Type.User);
+        when(_nicDao.findById(anyLong())).thenReturn(nic);
+        when(_vmDao.findById(anyLong())).thenReturn(_vmMock);
+        when(_networkDao.findById(anyLong())).thenReturn(_networkMock);
+        when(_networkMock.getState()).thenReturn(Network.State.Implemented);
+        doReturn(9L).when(_networkMock).getNetworkOfferingId();
+        when(_networkOfferingDao.findByIdIncludingRemoved(anyLong())).thenReturn(_networkOfferingMock);
+        doReturn(10L).when(_networkOfferingMock).getId();
+
+        List<Service> services = new ArrayList<Service>();
+        services.add(Service.Dhcp);
+        when(_networkModel.listNetworkOfferingServices(anyLong())).thenReturn(services);
+        when(_vmMock.getState()).thenReturn(State.Running);
+
+        Account caller = new AccountVO("testaccount", 1, "networkdomain", (short)0, UUID.randomUUID().toString());
+        UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);
+        CallContext.register(user, caller);
+        try {
+            _userVmMgr.updateNicIpForVirtualMachine(cmd);
+        } finally {
+            CallContext.unregister();
+        }
+    }
+
+    // vm is stopped in isolated network in advanced zone
+    @Test(expected = InvalidParameterValueException.class)
+    public void testUpdateVmNicIpFailure2() throws Exception {
+        UpdateVmNicIpCmd cmd = new UpdateVmNicIpCmd();
+        Class<?> _class = cmd.getClass();
+
+        Field virtualmachineIdField = _class.getDeclaredField("nicId");
+        virtualmachineIdField.setAccessible(true);
+        virtualmachineIdField.set(cmd, 1L);
+
+        Field accountNameField = _class.getDeclaredField("ipAddr");
+        accountNameField.setAccessible(true);
+        accountNameField.set(cmd, "10.10.10.10");
+
+        NicVO nic = new NicVO("nic", 1L, 2L, VirtualMachine.Type.User);
+        when(_nicDao.findById(anyLong())).thenReturn(nic);
+        when(_vmDao.findById(anyLong())).thenReturn(_vmMock);
+        when(_networkDao.findById(anyLong())).thenReturn(_networkMock);
+        doReturn(9L).when(_networkMock).getNetworkOfferingId();
+        when(_networkOfferingDao.findByIdIncludingRemoved(anyLong())).thenReturn(_networkOfferingMock);
+        doReturn(10L).when(_networkOfferingMock).getId();
+
+        List<Service> services = new ArrayList<Service>();
+        services.add(Service.Dhcp);
+        when(_networkModel.listNetworkOfferingServices(anyLong())).thenReturn(services);
+        when(_vmMock.getState()).thenReturn(State.Stopped);
+        doNothing().when(_accountMgr).checkAccess(_account, null, true, _vmMock);
+        when(_accountDao.findByIdIncludingRemoved(anyLong())).thenReturn(_accountMock);
+
+        when(_networkMock.getState()).thenReturn(Network.State.Implemented);
+        when(_networkMock.getDataCenterId()).thenReturn(3L);
+        when(_networkMock.getGuestType()).thenReturn(GuestType.Isolated);
+        when(_dcDao.findById(anyLong())).thenReturn(_dcMock);
+        when(_dcMock.getNetworkType()).thenReturn(NetworkType.Advanced);
+
+        when(_ipAddrMgr.allocateGuestIP(Mockito.eq(_networkMock), anyString())).thenReturn(null);
+
+        Account caller = new AccountVO("testaccount", 1, "networkdomain", (short)0, UUID.randomUUID().toString());
+        UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);
+        CallContext.register(user, caller);
+        try {
+            _userVmMgr.updateNicIpForVirtualMachine(cmd);
+        } finally {
+            CallContext.unregister();
+        }
+    }
+
+    // vm is stopped in shared network in advanced zone
+    @Test(expected = InvalidParameterValueException.class)
+    public void testUpdateVmNicIpFailure3() throws Exception {
+        UpdateVmNicIpCmd cmd = new UpdateVmNicIpCmd();
+        Class<?> _class = cmd.getClass();
+
+        Field virtualmachineIdField = _class.getDeclaredField("nicId");
+        virtualmachineIdField.setAccessible(true);
+        virtualmachineIdField.set(cmd, 1L);
+
+        Field accountNameField = _class.getDeclaredField("ipAddr");
+        accountNameField.setAccessible(true);
+        accountNameField.set(cmd, "10.10.10.10");
+
+        NicVO nic = new NicVO("nic", 1L, 2L, VirtualMachine.Type.User);
+        when(_nicDao.findById(anyLong())).thenReturn(nic);
+        when(_vmDao.findById(anyLong())).thenReturn(_vmMock);
+        when(_networkDao.findById(anyLong())).thenReturn(_networkMock);
+        doReturn(9L).when(_networkMock).getNetworkOfferingId();
+        when(_networkOfferingDao.findByIdIncludingRemoved(anyLong())).thenReturn(_networkOfferingMock);
+        doReturn(10L).when(_networkOfferingMock).getId();
+
+        List<Service> services = new ArrayList<Service>();
+        services.add(Service.Dhcp);
+        when(_networkModel.listNetworkOfferingServices(anyLong())).thenReturn(services);
+        when(_vmMock.getState()).thenReturn(State.Stopped);
+        doNothing().when(_accountMgr).checkAccess(_account, null, true, _vmMock);
+        when(_accountDao.findByIdIncludingRemoved(anyLong())).thenReturn(_accountMock);
+
+        when(_networkMock.getState()).thenReturn(Network.State.Implemented);
+        when(_networkMock.getDataCenterId()).thenReturn(3L);
+        when(_networkMock.getGuestType()).thenReturn(GuestType.Shared);
+        when(_dcDao.findById(anyLong())).thenReturn(_dcMock);
+        when(_dcMock.getNetworkType()).thenReturn(NetworkType.Advanced);
+
+        when(_ipAddrMgr.allocatePublicIpForGuestNic(Mockito.eq(_networkMock), anyLong(), Mockito.eq(_accountMock), anyString())).thenReturn(null);
+
+        Account caller = new AccountVO("testaccount", 1, "networkdomain", (short)0, UUID.randomUUID().toString());
+        UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);
+        CallContext.register(user, caller);
+        try {
+            _userVmMgr.updateNicIpForVirtualMachine(cmd);
+        } finally {
+            CallContext.unregister();
+        }
+    }
+
+    @Test
+    public void testApplyUserDataInNetworkWithoutUserDataSupport() throws Exception {
+        UserVm userVm = mock(UserVm.class);
+        when(userVm.getId()).thenReturn(1L);
+
+        when(_nicMock.getNetworkId()).thenReturn(2L);
+        when(_networkMock.getNetworkOfferingId()).thenReturn(3L);
+        when(_networkDao.findById(2L)).thenReturn(_networkMock);
+
+        // No userdata support
+        assertFalse(_userVmMgr.applyUserData(HypervisorType.KVM, userVm, _nicMock));
+    }
+
+    @Test(expected = CloudRuntimeException.class)
+    public void testApplyUserDataInNetworkWithoutElement() throws Exception {
+        UserVm userVm = mock(UserVm.class);
+        when(userVm.getId()).thenReturn(1L);
+
+        when(_nicMock.getNetworkId()).thenReturn(2L);
+        when(_networkMock.getNetworkOfferingId()).thenReturn(3L);
+        when(_networkDao.findById(2L)).thenReturn(_networkMock);
+
+        UserDataServiceProvider userDataServiceProvider = mock(UserDataServiceProvider.class);
+        when(userDataServiceProvider.saveUserData(any(Network.class), any(NicProfile.class), any(VirtualMachineProfile.class))).thenReturn(true);
+
+        // Userdata support, but no implementing element
+        when(_networkModel.areServicesSupportedByNetworkOffering(3L, Service.UserData)).thenReturn(true);
+        _userVmMgr.applyUserData(HypervisorType.KVM, userVm, _nicMock);
+    }
+
+    @Test
+    public void testApplyUserDataSuccessful() throws Exception {
+        UserVm userVm = mock(UserVm.class);
+        when(userVm.getId()).thenReturn(1L);
+
+        when(_nicMock.getNetworkId()).thenReturn(2L);
+        when(_networkMock.getNetworkOfferingId()).thenReturn(3L);
+        when(_networkDao.findById(2L)).thenReturn(_networkMock);
+
+        UserDataServiceProvider userDataServiceProvider = mock(UserDataServiceProvider.class);
+        when(userDataServiceProvider.saveUserData(any(Network.class), any(NicProfile.class), any(VirtualMachineProfile.class))).thenReturn(true);
+
+        // Userdata support with implementing element
+        when(_networkModel.areServicesSupportedByNetworkOffering(3L, Service.UserData)).thenReturn(true);
+        when(_networkModel.getUserDataUpdateProvider(_networkMock)).thenReturn(userDataServiceProvider);
+        assertTrue(_userVmMgr.applyUserData(HypervisorType.KVM, userVm, _nicMock));
+    }
+
+    @Test
+    public void testPersistDeviceBusInfoWithNullController() {
+        when(_vmMock.getDetail(any(String.class))).thenReturn(null);
+        _userVmMgr.persistDeviceBusInfo(_vmMock, null);
+        verify(_vmDao, times(0)).saveDetails(any(UserVmVO.class));
+    }
+
+    @Test
+    public void testPersistDeviceBusInfoWithEmptyController() {
+        when(_vmMock.getDetail(any(String.class))).thenReturn("");
+        _userVmMgr.persistDeviceBusInfo(_vmMock, "");
+        verify(_vmDao, times(0)).saveDetails(any(UserVmVO.class));
+    }
+
+    @Test
+    public void testPersistDeviceBusInfo() {
+        when(_vmMock.getDetail(any(String.class))).thenReturn(null);
+        _userVmMgr.persistDeviceBusInfo(_vmMock, "lsilogic");
+        verify(_vmDao, times(1)).saveDetails(any(UserVmVO.class));
+    }
 }

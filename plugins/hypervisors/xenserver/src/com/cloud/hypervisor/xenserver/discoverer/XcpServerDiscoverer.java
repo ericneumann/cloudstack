@@ -86,7 +86,6 @@ import org.apache.cloudstack.hypervisor.xenserver.XenserverConfigs;
 import org.apache.log4j.Logger;
 import org.apache.xmlrpc.XmlRpcException;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 import javax.persistence.EntityExistsException;
@@ -102,7 +101,6 @@ import java.util.Queue;
 import java.util.Set;
 
 
-@Local(value = Discoverer.class)
 public class XcpServerDiscoverer extends DiscovererBase implements Discoverer, Listener, ResourceStateAdapter {
     private static final Logger s_logger = Logger.getLogger(XcpServerDiscoverer.class);
     protected String _publicNic;
@@ -115,16 +113,15 @@ public class XcpServerDiscoverer extends DiscovererBase implements Discoverer, L
     protected String _guestNic;
     protected boolean _setupMultipath;
     protected String _instance;
-    private String xs620snapshothotfix = "Xenserver-Vdi-Copy-HotFix";
 
     @Inject
     protected AlertManager _alertMgr;
     @Inject
     protected AgentManager _agentMgr;
     @Inject
-    VMTemplateDao _tmpltDao;
+    private VMTemplateDao _tmpltDao;
     @Inject
-    HostPodDao _podDao;
+    private HostPodDao _podDao;
 
     protected XcpServerDiscoverer() {
     }
@@ -545,6 +542,10 @@ public class XcpServerDiscoverer extends DiscovererBase implements Discoverer, L
     }
 
     @Override
+    public void processHostAdded(long hostId) {
+    }
+
+    @Override
     public void processConnect(com.cloud.host.Host agent, StartupCommand cmd, boolean forRebalance) throws ConnectionException {
         if (!(cmd instanceof StartupRoutingCommand)) {
             return;
@@ -629,6 +630,14 @@ public class XcpServerDiscoverer extends DiscovererBase implements Discoverer, L
     @Override
     public boolean processDisconnect(long agentId, Status state) {
         return false;
+    }
+
+    @Override
+    public void processHostAboutToBeRemoved(long hostId) {
+    }
+
+    @Override
+    public void processHostRemoved(long hostId, long clusterId) {
     }
 
     @Override

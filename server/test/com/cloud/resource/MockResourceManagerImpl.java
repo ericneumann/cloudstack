@@ -21,7 +21,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.ejb.Local;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.api.command.admin.cluster.AddClusterCmd;
@@ -38,6 +37,7 @@ import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupRoutingCommand;
 import com.cloud.agent.api.VgpuTypesInfo;
 import com.cloud.agent.api.to.GPUDeviceTO;
+import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.HostPodVO;
 import com.cloud.dc.PodCluster;
@@ -57,7 +57,6 @@ import com.cloud.resource.ResourceState.Event;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.fsm.NoTransitionException;
 
-@Local(value = {ResourceManager.class})
 public class MockResourceManagerImpl extends ManagerBase implements ResourceManager {
 
     /* (non-Javadoc)
@@ -170,6 +169,12 @@ public class MockResourceManagerImpl extends ManagerBase implements ResourceMana
      */
     @Override
     public Cluster getCluster(final Long clusterId) {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public DataCenter getZone(Long zoneId) {
         // TODO Auto-generated method stub
         return null;
     }

@@ -27,6 +27,8 @@ import java.util.Set;
 import javax.annotation.PostConstruct;
 import javax.inject.Inject;
 
+import org.apache.cloudstack.acl.Role;
+import org.apache.cloudstack.acl.RoleService;
 import org.apache.cloudstack.affinity.AffinityGroup;
 import org.apache.cloudstack.affinity.AffinityGroupResponse;
 import org.apache.cloudstack.affinity.dao.AffinityGroupDao;
@@ -139,6 +141,7 @@ import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.HostPodDao;
 import com.cloud.dc.dao.VlanDao;
+import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.Event;
@@ -422,6 +425,7 @@ public class ApiDBUtils {
     static AffinityGroupJoinDao s_affinityGroupJoinDao;
     static GlobalLoadBalancingRulesService s_gslbService;
     static NetworkACLDao s_networkACLDao;
+    static RoleService s_roleService;
     static AccountService s_accountService;
     static ResourceMetaDataService s_resourceDetailsService;
     static HostGpuGroupsDao s_hostGpuGroupsDao;
@@ -645,6 +649,8 @@ public class ApiDBUtils {
     @Inject
     private NetworkACLDao networkACLDao;
     @Inject
+    private RoleService roleService;
+    @Inject
     private AccountService accountService;
     @Inject
     private ConfigurationManager configMgr;
@@ -767,6 +773,7 @@ public class ApiDBUtils {
         // Note: stats collector should already have been initialized by this time, otherwise a null instance is returned
         s_statsCollector = StatsCollector.getInstance();
         s_networkACLDao = networkACLDao;
+        s_roleService = roleService;
         s_accountService = accountService;
         s_resourceDetailsService = resourceDetailsService;
         s_hostGpuGroupsDao = hostGpuGroupsDao;
@@ -1245,6 +1252,10 @@ public class ApiDBUtils {
         return s_configSvc.getVlanAccount(vlanId);
     }
 
+    public static Domain getVlanDomain(long vlanId) {
+        return s_configSvc.getVlanDomain(vlanId);
+    }
+
     public static boolean isSecurityGroupEnabledInZone(long zoneId) {
         DataCenterVO dc = s_zoneDao.findById(zoneId);
         if (dc == null) {
@@ -1690,6 +1701,15 @@ public class ApiDBUtils {
 
     public static UserResponse newUserResponse(UserAccountJoinVO usr, Long domainId) {
         UserResponse response = s_userAccountJoinDao.newUserResponse(usr);
+        // Populate user account role information
+        if (usr.getAccountRoleId() != null) {
+            Role role = s_roleService.findRole( usr.getAccountRoleId());
+            if (role != null) {
+                response.setRoleId(role.getUuid());
+                response.setRoleType(role.getRoleType());
+                response.setRoleName(role.getName());
+            }
+        }
         if (domainId != null && usr.getDomainId() != domainId)
             response.setIsCallerChildDomain(true);
         else
@@ -1815,7 +1835,17 @@ public class ApiDBUtils {
     }
 
     public static AccountResponse newAccountResponse(ResponseView view, AccountJoinVO ve) {
-        return s_accountJoinDao.newAccountResponse(view, ve);
+        AccountResponse response = s_accountJoinDao.newAccountResponse(view, ve);
+        // Populate account role information
+        if (ve.getRoleId() != null) {
+            Role role = s_roleService.findRole(ve.getRoleId());
+            if (role != null) {
+                response.setRoleId(role.getUuid());
+                response.setRoleType(role.getRoleType());
+                response.setRoleName(role.getName());
+            }
+        }
+        return response;
     }
 
     public static AccountJoinVO newAccountView(Account e) {

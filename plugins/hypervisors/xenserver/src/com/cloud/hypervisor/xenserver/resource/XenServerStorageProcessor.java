@@ -44,6 +44,8 @@ import org.apache.cloudstack.storage.command.DettachCommand;
 import org.apache.cloudstack.storage.command.ForgetObjectCmd;
 import org.apache.cloudstack.storage.command.IntroduceObjectAnswer;
 import org.apache.cloudstack.storage.command.IntroduceObjectCmd;
+import org.apache.cloudstack.storage.command.ResignatureAnswer;
+import org.apache.cloudstack.storage.command.ResignatureCommand;
 import org.apache.cloudstack.storage.command.SnapshotAndCopyAnswer;
 import org.apache.cloudstack.storage.command.SnapshotAndCopyCommand;
 import org.apache.cloudstack.storage.datastore.protocol.DataStoreProtocol;
@@ -70,11 +72,11 @@ import com.cloud.storage.DataStoreRole;
 import com.cloud.storage.Storage;
 import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.resource.StorageProcessor;
-import com.cloud.utils.S3Utils;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.storage.encoding.DecodedDataObject;
 import com.cloud.utils.storage.encoding.DecodedDataStore;
 import com.cloud.utils.storage.encoding.Decoder;
+import com.cloud.utils.storage.S3.ClientOptions;
 import com.xensource.xenapi.Connection;
 import com.xensource.xenapi.Host;
 import com.xensource.xenapi.PBD;
@@ -156,6 +158,50 @@ public class XenServerStorageProcessor implements StorageProcessor {
             s_logger.warn("Failed to take and copy snapshot: " + ex.toString(), ex);
 
             return new SnapshotAndCopyAnswer(ex.getMessage());
+        }
+    }
+
+    @Override
+    public ResignatureAnswer resignature(final ResignatureCommand cmd) {
+        SR newSr = null;
+
+        final Connection conn = hypervisorResource.getConnection();
+
+        try {
+            final Map<String, String> details = cmd.getDetails();
+
+            final String iScsiName = details.get(DiskTO.IQN);
+            final String storageHost = details.get(DiskTO.STORAGE_HOST);
+            final String chapInitiatorUsername = details.get(DiskTO.CHAP_INITIATOR_USERNAME);
+            final String chapInitiatorSecret = details.get(DiskTO.CHAP_INITIATOR_SECRET);
+
+            newSr = hypervisorResource.getIscsiSR(conn, iScsiName, storageHost, iScsiName, chapInitiatorUsername, chapInitiatorSecret, true, false);
+
+            Set<VDI> vdis = newSr.getVDIs(conn);
+
+            if (vdis.size() != 1) {
+                throw new RuntimeException("There were " + vdis.size() + " VDIs in the SR.");
+            }
+
+            VDI vdi = vdis.iterator().next();
+
+            final ResignatureAnswer resignatureAnswer = new ResignatureAnswer();
+
+            resignatureAnswer.setSize(vdi.getVirtualSize(conn));
+            resignatureAnswer.setPath(vdi.getUuid(conn));
+            resignatureAnswer.setFormat(ImageFormat.VHD);
+
+            return resignatureAnswer;
+        }
+        catch (final Exception ex) {
+            s_logger.warn("Failed to resignature: " + ex.toString(), ex);
+
+            return new ResignatureAnswer(ex.getMessage());
+        }
+        finally {
+            if (newSr != null) {
+                hypervisorResource.removeSR(conn, newSr);
+            }
         }
     }
 
@@ -763,6 +809,9 @@ public class XenServerStorageProcessor implements StorageProcessor {
         final DataTO destDataTo = cmd.getDestTO();
         final int wait = cmd.getWait();
         final DataStoreTO srcDataStoreTo = srcDataTo.getDataStore();
+        final Connection conn = hypervisorResource.getConnection();
+        SR sr = null;
+        boolean removeSrAfterCopy = false;
 
         try {
             if (srcDataStoreTo instanceof NfsTO && srcDataTo.getObjectType() == DataObjectType.TEMPLATE) {
@@ -796,13 +845,10 @@ public class XenServerStorageProcessor implements StorageProcessor {
                             managedStoragePoolRootVolumeSize = details.get(PrimaryDataStoreTO.VOLUME_SIZE);
                             chapInitiatorUsername = details.get(PrimaryDataStoreTO.CHAP_INITIATOR_USERNAME);
                             chapInitiatorSecret = details.get(PrimaryDataStoreTO.CHAP_INITIATOR_SECRET);
+                            removeSrAfterCopy = Boolean.parseBoolean(details.get(PrimaryDataStoreTO.REMOVE_AFTER_COPY));
                         }
                     }
                 }
-
-                final Connection conn = hypervisorResource.getConnection();
-
-                final SR sr;
 
                 if (managed) {
                     final Map<String, String> details = new HashMap<String, String>();
@@ -861,9 +907,11 @@ public class XenServerStorageProcessor implements StorageProcessor {
 
                 newVol.setUuid(uuidToReturn);
                 newVol.setPath(uuidToReturn);
+
                 if (physicalSize != null) {
                     newVol.setSize(physicalSize);
                 }
+
                 newVol.setFormat(ImageFormat.VHD);
 
                 return new CopyCmdAnswer(newVol);
@@ -874,6 +922,11 @@ public class XenServerStorageProcessor implements StorageProcessor {
             s_logger.warn(msg, e);
 
             return new CopyCmdAnswer(msg);
+        }
+        finally {
+            if (removeSrAfterCopy && sr != null) {
+                hypervisorResource.removeSR(conn, sr);
+            }
         }
 
         return new CopyCmdAnswer("not implemented yet");
@@ -1061,7 +1114,7 @@ public class XenServerStorageProcessor implements StorageProcessor {
 
         try {
 
-            final List<String> parameters = newArrayList(flattenProperties(s3, S3Utils.ClientOptions.class));
+            final List<String> parameters = newArrayList(flattenProperties(s3, ClientOptions.class));
             // https workaround for Introspector bug that does not
             // recognize Boolean accessor methods ...
 

@@ -530,6 +530,7 @@ div.list-view table tbody td span {
   display: block;
   float: left;
   max-width: 89%;
+  word-break: break-all;
   word-wrap: break-word;
   text-indent: 0;
   margin-left: 12px;
@@ -2308,6 +2309,7 @@ div.detail-group.actions td {
   height: 35px;
   float: right;
   padding: 0;
+  min-width: 120px;
 }
 
 .details.group-multiple div.detail-group.actions .detail-actions .action {
@@ -2488,7 +2490,7 @@ div.detail-group.actions td {
   padding: 1px 0 0;
   /*+placement:shift -174px -57px;*/
   position: relative;
-  left: -174px;
+  left: -239px;
   top: -57px;
 }
 
@@ -2554,7 +2556,7 @@ div.detail-group.actions td {
   margin: 0;
   position: absolute;
   top: -47px;
-  left: 1090px;
+  left: 1025px;
   cursor: default !important;
   display: inline-block;
   float: left;
@@ -2567,8 +2569,8 @@ div.detail-group.actions td {
   padding: 9px 18px 7px 12px;
   border-right: none;
   /*[empty]border-top:;*/
-  min-width: 75px;
-  max-width: 120px;
+  min-width: 110px;
+  max-width: 220px;
   text-align: center;
   height: 12px;
   overflow: hidden;
@@ -2900,6 +2902,15 @@ div.detail-group.actions td {
 #navigation ul li.global-settings:hover span.icon {
   background-image: url(../images/sprites.png);
   background-position: -366px -239px;
+}
+
+#navigation ul li.roles span.icon {
+  background-position: -460px -80px;
+}
+
+#navigation ul li.roles.active span.icon,
+#navigation ul li.roles:hover span.icon {
+  background-position: -469px -750px;
 }
 
 #navigation ul li.accounts span.icon {
@@ -3553,7 +3564,7 @@ div.toolbar div.section-switcher div.section-select label {
 /*Breadcrumbs*/
 div.toolbar div.filters {
   margin: 5px 0px 0 12px;
-  width: 168px;
+  width: 200px;
   float: left;
 }
 
@@ -4309,7 +4320,7 @@ textarea {
 #user-options {
   background: #FFFFFF;
   z-index: 10000;
-  width: 104px;
+  width: 150px;
   position: absolute;
   padding: 15px;
   top: 30px;
@@ -8290,6 +8301,16 @@ div.container div.panel div#details-tab-addloadBalancer.detail-group div.loadBal
   background: transparent;
   color: #808B95;
   font-weight: bold;
+}
+
+.multi-edit-add-list div.form-container {
+  width: auto !important;
+  height: auto;
+  text-align: center;
+}
+
+.multi-edit-add-list div.form-container div.name label {
+  display: inline;
 }
 
 .multi-edit .data .data-body {
@@ -12682,6 +12703,54 @@ div.ui-dialog div.autoscaler div.field-group div.form-container form div.form-it
   background-position: -137px -614px;
 }
 
+.blankOutOfBandManagement .icon {
+  background-position: -266px -31px;
+}
+
+.blankOutOfBandManagement:hover .icon {
+  background-position: -266px -31px;
+}
+
+.configureOutOfBandManagement .icon {
+  background-position: -168px -31px;
+}
+
+.configureOutOfBandManagement:hover .icon {
+  background-position: -168px -613px;
+}
+
+.enableOutOfBandManagement .icon {
+  background-position: -138px -65px;
+}
+
+.enableOutOfBandManagement:hover .icon {
+  background-position: -138px -647px;
+}
+
+.disableOutOfBandManagement .icon {
+  background-position: -138px -123px;
+}
+
+.disableOutOfBandManagement:hover .icon {
+  background-position: -138px -705px;
+}
+
+.issueOutOfBandManagementPowerAction .icon {
+  background-position: -266px -3px;
+}
+
+.issueOutOfBandManagementPowerAction:hover .icon {
+  background-position: -265px -584px;
+}
+
+.changeOutOfBandManagementPassword .icon {
+  background-position: -68px -30px;
+}
+
+.changeOutOfBandManagementPassword:hover .icon {
+  background-position: -68px -612px;
+}
+
 .enableMaintenanceMode .icon {
   background-position: -138px -65px;
 }
@@ -12908,12 +12977,14 @@ div.ui-dialog div.autoscaler div.field-group div.form-container form div.form-it
 
 .replaceacllist .icon,
 .replaceACL .icon,
+.updateIpaddr .icon,
 .changeAffinity .icon {
   background-position: -264px -2px;
 }
 
 .replaceacllist:hover .icon,
 .replaceACL:hover .icon,
+.updateIpaddr:hover .icon,
 .changeAffinity:hover .icon {
   background-position: -263px -583px;
 }
@@ -13147,4 +13218,11 @@ div.gpugroups div.list-view {
 .ui-dialog .ui-button.add span {
   background: transparent url("../images/icons.png") no-repeat -626px -209px;
   padding: 0 0 3px 18px;
+}
+
+ul.ui-autocomplete.ui-menu {
+  width: 250px;
+  background: #ddd;
+  font-size: 13px;
+  padding: 5px;
 }

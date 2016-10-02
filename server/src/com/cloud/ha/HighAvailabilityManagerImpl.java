@@ -25,7 +25,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.ejb.Local;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
@@ -63,6 +62,7 @@ import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.resource.ResourceManager;
 import com.cloud.server.ManagementServer;
+import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.dao.GuestOSCategoryDao;
@@ -101,7 +101,6 @@ import com.cloud.vm.dao.VMInstanceDao;
  *         ha.retry.wait | time to wait before retrying the work item | seconds | 120 || || stop.retry.wait | time to wait
  *         before retrying the stop | seconds | 120 || * }
  **/
-@Local(value = { HighAvailabilityManager.class })
 public class HighAvailabilityManagerImpl extends ManagerBase implements HighAvailabilityManager, ClusterManagerListener {
 
     protected static final Logger s_logger = Logger.getLogger(HighAvailabilityManagerImpl.class);
@@ -266,6 +265,13 @@ public class HighAvailabilityManagerImpl extends ManagerBase implements HighAvai
                 "Host [" + hostDesc + "] is down." + ((sb != null) ? sb.toString() : ""));
 
         for (VMInstanceVO vm : reorderedVMList) {
+            ServiceOfferingVO vmOffering = _serviceOfferingDao.findById(vm.getServiceOfferingId());
+            if (vmOffering.getUseLocalStorage()) {
+                if (s_logger.isDebugEnabled()){
+                    s_logger.debug("Skipping HA on vm " + vm + ", because it uses local storage. Its fate is tied to the host.");
+                }
+                continue;
+            }
             if (s_logger.isDebugEnabled()) {
                 s_logger.debug("Notifying HA Mgr of to restart vm " + vm.getId() + "-" + vm.getInstanceName());
             }
@@ -763,9 +769,25 @@ public class HighAvailabilityManagerImpl extends ManagerBase implements HighAvai
         work.setDateTaken(null);
     }
 
+    private long getRescheduleTime(WorkType workType) {
+        switch (workType) {
+            case Migration:
+                return ((System.currentTimeMillis() >> 10) + _migrateRetryInterval);
+            case HA:
+                return ((System.currentTimeMillis() >> 10) + _restartRetryInterval);
+            case Stop:
+            case CheckStop:
+            case ForceStop:
+                return ((System.currentTimeMillis() >> 10) + _stopRetryInterval);
+            case Destroy:
+                return ((System.currentTimeMillis() >> 10) + _restartRetryInterval);
+        }
+        return 0;
+    }
+
     private void processWork(final HaWorkVO work) {
+        final WorkType wt = work.getWorkType();
         try {
-            final WorkType wt = work.getWorkType();
             Long nextTime = null;
             if (wt == WorkType.Migration) {
                 nextTime = migrate(work);
@@ -789,7 +811,7 @@ public class HighAvailabilityManagerImpl extends ManagerBase implements HighAvai
         } catch (Exception e) {
             s_logger.warn("Encountered unhandled exception during HA process, reschedule work", e);
 
-            long nextTime = (System.currentTimeMillis() >> 10) + _restartRetryInterval;
+            long nextTime = getRescheduleTime(wt);
             rescheduleWork(work, nextTime);
 
             // if restart failed in the middle due to exception, VM state may has been changed
